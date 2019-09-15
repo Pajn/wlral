@@ -1,0 +1,32 @@
+[package]
+name = "wlroots_sys"
+version = "0.1.0"
+authors = ["Rasmus Eneman <rasmus@eneman.eu>"]
+edition = "2018"
+
+# [dependencies]
+# xkbcommon = "0.4.0"
+[dependencies]
+libc = "0.2.62"
+wayland-commons = "0.24.0"
+wayland-server = { version = "0.24.0", features = ["use_system_lib"] }
+wayland-sys = { version = "0.24.0", features = ["dlopen", "server"] }
+
+[build-dependencies]
+bindgen = "0.51.0"
+meson = { version = "1.0", optional = true }
+wayland-scanner = "0.24.0"
+# For building optional dependencies
+pkg-config = "0.3.16"
+
+[features]
+default = ["libcap", "systemd", "elogind", "xwayland", "x11_backend", "unstable", "static"]
+static = ["meson"]
+libcap = []
+systemd = []
+elogind = []
+x11_backend = []
+xwayland = []
+xcb_errors = []
+xcb_icccm = []
+unstable = []
