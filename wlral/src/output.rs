@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::pin::Pin;
 use std::ptr;
 use std::rc::Rc;
-use std::time::SystemTime;
+use std::time::Instant;
 use wayland_sys::server::signal::wl_signal_add;
 use wlroots_sys::*;
 
@@ -29,42 +29,16 @@ impl OutputEventHandler for Output {
       let color = [0.3, 0.3, 0.3, 1.0];
       wlr_renderer_clear(self.renderer, &color[0]);
 
-      let now = SystemTime::now();
-      let since_epoc = match now.duration_since(SystemTime::UNIX_EPOCH) {
-        Ok(duration) => duration,
-        Err(_) => {
-          return;
-        }
-      };
+      let now = Instant::now();
+      let since_creation = now.duration_since(self.created_at);
       let frame_time = timespec {
-        tv_sec: since_epoc.as_secs() as i64,
-        tv_nsec: since_epoc.subsec_nanos() as i64,
+        tv_sec: since_creation.as_secs() as i64,
+        tv_nsec: since_creation.subsec_nanos() as i64,
       };
 
       for surface in self.surface_manager.borrow().surfaces_to_render() {
         self.render_surface(&frame_time, surface);
       }
-
-      // Each subsequent window we render is rendered on top of the last. Because
-      // our view list is ordered front-to-back, we iterate over it backwards.
-
-      // struct tinywl_view *view;
-      // wl_list_for_each_reverse(view, &output->server->views, link) {
-      //   if (!view->mapped) {
-      //     /* An unmapped view should not be rendered. */
-      //     continue;
-      //   }
-      //   struct render_data rdata = {
-      //     .output = self.output,
-      //     .view = view,
-      //     .renderer = renderer,
-      //     .when = &now,
-      //   };
-      //   /* This calls our render_surface function for each surface among the
-      //   * xdg_surface's toplevel and popups. */
-      //   wlr_xdg_surface_for_each_surface(view->xdg_surface,
-      //       render_surface, &rdata);
-      // }
 
       // Hardware cursors are rendered by the GPU on a separate plane, and can be
       // moved around without re-rendering what's beneath them - which is more
@@ -98,6 +72,7 @@ pub struct Output {
   surface_manager: Rc<RefCell<SurfaceManager>>,
   output_layout: *mut wlr_output_layout,
   output: *mut wlr_output,
+  created_at: Instant,
 
   event_manager: Option<Pin<Box<OutputEventManager>>>,
 }
@@ -114,6 +89,7 @@ impl Output {
       surface_manager,
       output,
       output_layout,
+      created_at: Instant::now(),
       event_manager: None,
     }
   }
