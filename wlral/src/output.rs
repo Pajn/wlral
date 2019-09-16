@@ -176,10 +176,12 @@ impl Output {
       // wlr_output_layout_output_coords(
       //     view->server->output_layout, output, &ox, &oy);
       // ox += view->x + sx, oy += view->y + sy;
-      let top_left = self.top_left() + surface.buffer_top_left().as_displacement() + Displacement {
-        dx: wlr_surface.sx,
-        dy: wlr_surface.sy,
-      };
+      let top_left = self.top_left()
+        + surface.buffer_top_left().as_displacement()
+        + Displacement {
+          dx: wlr_surface.sx,
+          dy: wlr_surface.sy,
+        };
 
       // We also have to apply the scale factor for HiDPI outputs. This is only
       // part of the puzzle, TinyWL does not fully support HiDPI.

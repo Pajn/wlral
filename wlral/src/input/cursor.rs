@@ -33,7 +33,8 @@ impl Cursor {
 
       if let Some(surface) = surface {
         let focus_changed = (*self.seat).pointer_state.focused_surface != surface.surface();
-        let surface_position = position - FPoint::from(surface.extents().top_left()).as_displacement();
+        let surface_position =
+          position - FPoint::from(surface.extents().top_left()).as_displacement();
         // "Enter" the surface if necessary. This lets the client know that the
         // cursor has entered one of its surfaces.
         //

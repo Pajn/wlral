@@ -67,7 +67,10 @@ pub struct Size {
 }
 
 impl Size {
-  pub const ZERO: Size = Size { width: 0, height: 0 };
+  pub const ZERO: Size = Size {
+    width: 0,
+    height: 0,
+  };
 
   pub fn width(&self) -> i32 {
     self.width
@@ -132,7 +135,10 @@ pub struct Rectangle {
 }
 
 impl Rectangle {
-  pub const ZERO: Rectangle = Rectangle { top_left: Point::ZERO, size: Size::ZERO };
+  pub const ZERO: Rectangle = Rectangle {
+    top_left: Point::ZERO,
+    size: Size::ZERO,
+  };
 
   pub fn left(&self) -> i32 {
     self.top_left.x

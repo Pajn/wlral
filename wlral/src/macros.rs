@@ -87,53 +87,53 @@ macro_rules! wayland_listener {
   ($pub: vis $struct_name: ident, $data: ty, $([
       $($listener: ident => $listener_func: ident :
         |$($func_arg:ident: $func_type:ty,)*| unsafe $body: block;)*])+) => {
-      #[repr(C)]
-      $pub struct $struct_name {
-          data: $data,
-          $($($listener: $crate::wayland_sys::server::wl_listener),*)*
+    #[repr(C)]
+    $pub struct $struct_name {
+        data: $data,
+        $($($listener: $crate::wayland_sys::server::wl_listener),*)*
+    }
+
+    impl $struct_name {
+      pub(crate) fn new(data: $data) -> Pin<Box<$struct_name>> {
+        Pin::new(Box::new($struct_name {
+          data,
+          $($($listener: unsafe {
+            // NOTE Rationale for zeroed memory:
+            // * Need to pass a pointer to wl_list_init
+            // * The list is initialized by Wayland, which doesn't "drop"
+            // * The listener is written to without dropping any of the data
+            let mut listener: $crate::wayland_sys::server::wl_listener = ::std::mem::zeroed();
+            use $crate::wayland_sys::server::WAYLAND_SERVER_HANDLE;
+            ffi_dispatch!(WAYLAND_SERVER_HANDLE,
+                          wl_list_init,
+                          &mut listener.link as *mut _ as _);
+            ::std::ptr::write(&mut listener.notify, $struct_name::$listener_func);
+            listener
+          }),*)*
+        }))
       }
 
-      impl $struct_name {
-          pub(crate) fn new(data: $data) -> Pin<Box<$struct_name>> {
-              Pin::new(Box::new($struct_name {
-                  data,
-                  $($($listener: unsafe {
-                      // NOTE Rationale for zeroed memory:
-                      // * Need to pass a pointer to wl_list_init
-                      // * The list is initialized by Wayland, which doesn't "drop"
-                      // * The listener is written to without dropping any of the data
-                      let mut listener: $crate::wayland_sys::server::wl_listener = ::std::mem::zeroed();
-                      use $crate::wayland_sys::server::WAYLAND_SERVER_HANDLE;
-                      ffi_dispatch!(WAYLAND_SERVER_HANDLE,
-                                    wl_list_init,
-                                    &mut listener.link as *mut _ as _);
-                      ::std::ptr::write(&mut listener.notify, $struct_name::$listener_func);
-                      listener
-                  }),*)*
-              }))
-          }
+      $($(pub(crate) unsafe extern "C" fn $listener(&mut self)
+                                              -> *mut $crate::wayland_sys::server::wl_listener {
+          &mut self.$listener as *mut _
+      })*)*
 
-          $($(pub(crate) unsafe extern "C" fn $listener(&mut self)
-                                                  -> *mut $crate::wayland_sys::server::wl_listener {
-              &mut self.$listener as *mut _
-          })*)*
-
-          $($(pub(crate) unsafe extern "C" fn $listener_func(listener:
-                                                      *mut $crate::wayland_sys::server::wl_listener,
-                                                      data: *mut $crate::libc::c_void) {
-              let manager: &mut $struct_name = &mut (*container_of!(listener,
-                                                                    $struct_name,
-                                                                    $listener));
-              // TODO: Handle unwind
-              // $crate::utils::handle_unwind(
-              //     ::std::panic::catch_unwind(
-              //         ::std::panic::AssertUnwindSafe(|| {
-              //             #[allow(clippy::redundant_closure_call)]
-              //             (|$($func_arg: $func_type,)*| { $body })(manager, data)
-              //         })));
-              #[allow(clippy::redundant_closure_call)]
-              (|$($func_arg: $func_type,)*| { $body })(manager, data)
-          })*)*
-      }
+      $($(pub(crate) unsafe extern "C" fn $listener_func(listener:
+                                                *mut $crate::wayland_sys::server::wl_listener,
+                                                data: *mut $crate::libc::c_void) {
+        let manager: &mut $struct_name = &mut (*container_of!(listener,
+                                                              $struct_name,
+                                                              $listener));
+        // TODO: Handle unwind
+        // $crate::utils::handle_unwind(
+        //     ::std::panic::catch_unwind(
+        //         ::std::panic::AssertUnwindSafe(|| {
+        //             #[allow(clippy::redundant_closure_call)]
+        //             (|$($func_arg: $func_type,)*| { $body })(manager, data)
+        //         })));
+        #[allow(clippy::redundant_closure_call)]
+        (|$($func_arg: $func_type,)*| { $body })(manager, data)
+      })*)*
+    }
   }
 }

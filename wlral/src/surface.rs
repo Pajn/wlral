@@ -31,20 +31,18 @@ impl Surface {
 
   fn parent_offset(&self) -> Displacement {
     match self.surface_type {
-      Xdg(xdg_surface) => {
-        unsafe {
-          if (*xdg_surface).role == wlr_xdg_surface_role_WLR_XDG_SURFACE_ROLE_POPUP {
-            let popup = &*(*xdg_surface).__bindgen_anon_1.popup;
-            let parent = wlr_xdg_surface_from_wlr_surface(popup.parent);
-            let mut parent_geo = Rectangle::ZERO.into();
-            wlr_xdg_surface_get_geometry(parent, &mut parent_geo);
-            Displacement {
-              dx: parent_geo.x + popup.geometry.x,
-              dy: parent_geo.y + popup.geometry.y,
-            }
-          } else {
-            Displacement::ZERO
+      Xdg(xdg_surface) => unsafe {
+        if (*xdg_surface).role == wlr_xdg_surface_role_WLR_XDG_SURFACE_ROLE_POPUP {
+          let popup = &*(*xdg_surface).__bindgen_anon_1.popup;
+          let parent = wlr_xdg_surface_from_wlr_surface(popup.parent);
+          let mut parent_geo = Rectangle::ZERO.into();
+          wlr_xdg_surface_get_geometry(parent, &mut parent_geo);
+          Displacement {
+            dx: parent_geo.x + popup.geometry.x,
+            dy: parent_geo.y + popup.geometry.y,
           }
+        } else {
+          Displacement::ZERO
         }
       },
       Xwayland(_) => Displacement::ZERO,
@@ -58,15 +56,15 @@ impl Surface {
           let mut wlr_box = Rectangle::ZERO.into();
           wlr_xdg_surface_get_geometry(xdg_surface, &mut wlr_box);
           Rectangle::from(wlr_box) + self.parent_offset()
-        },
+        }
         Xwayland(xwayland_surface) => Rectangle {
-          top_left: Point { 
+          top_left: Point {
             x: (*xwayland_surface).x as i32,
             y: (*xwayland_surface).y as i32,
           },
-          size: Size { 
+          size: Size {
             width: (*xwayland_surface).width as i32,
-            height: (*xwayland_surface).height as i32, 
+            height: (*xwayland_surface).height as i32,
           },
         },
       }
