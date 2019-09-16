@@ -27,6 +27,10 @@ impl<T: Copy> TPoint<T> {
   }
 }
 
+impl Point {
+  pub const ZERO: Point = Point { x: 0, y: 0 };
+}
+
 impl From<Point> for FPoint {
   fn from(point: Point) -> Self {
     FPoint {
@@ -63,6 +67,8 @@ pub struct Size {
 }
 
 impl Size {
+  pub const ZERO: Size = Size { width: 0, height: 0 };
+
   pub fn width(&self) -> i32 {
     self.width
   }
@@ -126,6 +132,8 @@ pub struct Rectangle {
 }
 
 impl Rectangle {
+  pub const ZERO: Rectangle = Rectangle { top_left: Point::ZERO, size: Size::ZERO };
+
   pub fn left(&self) -> i32 {
     self.top_left.x
   }
@@ -151,10 +159,7 @@ impl Rectangle {
   }
 
   pub fn top_left(&self) -> Point {
-    Point {
-      x: self.left(),
-      y: self.top(),
-    }
+    self.top_left
   }
 
   pub fn bottom_right(&self) -> Point {
@@ -162,6 +167,10 @@ impl Rectangle {
       x: self.right(),
       y: self.bottom(),
     }
+  }
+
+  pub fn size(&self) -> Size {
+    self.size
   }
 
   pub fn contains(&self, point: &Point) -> bool {
@@ -207,6 +216,10 @@ pub struct TDisplacement<T> {
 pub type Displacement = TDisplacement<i32>;
 pub type FDisplacement = TDisplacement<f64>;
 
+impl Displacement {
+  pub const ZERO: Displacement = Displacement { dx: 0, dy: 0 };
+}
+
 impl<T: Copy> Sub<TPoint<T>> for TPoint<T>
 where
   T: Sub<T, Output = T>,
@@ -245,6 +258,28 @@ where
     TPoint {
       x: self.x - other.dx,
       y: self.y - other.dy,
+    }
+  }
+}
+
+impl Add<Displacement> for Rectangle {
+  type Output = Rectangle;
+
+  fn add(self, other: Displacement) -> Self::Output {
+    Rectangle {
+      top_left: self.top_left + other,
+      size: self.size,
+    }
+  }
+}
+
+impl Sub<Displacement> for Rectangle {
+  type Output = Rectangle;
+
+  fn sub(self, other: Displacement) -> Self::Output {
+    Rectangle {
+      top_left: self.top_left + other,
+      size: self.size,
     }
   }
 }

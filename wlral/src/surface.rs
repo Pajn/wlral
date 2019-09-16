@@ -1,4 +1,4 @@
-use crate::geometry::{Point, Rectangle, Size};
+use crate::geometry::{Displacement, Point, Rectangle, Size};
 use std::cell::RefCell;
 use std::cmp::PartialEq;
 use std::pin::Pin;
@@ -15,7 +15,6 @@ use SurfaceType::*;
 pub struct Surface {
   surface_type: SurfaceType,
   mapped: RefCell<bool>,
-  top_left: Point,
 
   event_manager: RefCell<Option<Pin<Box<SurfaceEventManager>>>>,
 }
@@ -30,24 +29,73 @@ impl Surface {
     }
   }
 
-  pub fn top_left(&self) -> Point {
-    self.top_left
+  fn parent_offset(&self) -> Displacement {
+    match self.surface_type {
+      Xdg(xdg_surface) => {
+        unsafe {
+          if (*xdg_surface).role == wlr_xdg_surface_role_WLR_XDG_SURFACE_ROLE_POPUP {
+            let popup = &*(*xdg_surface).__bindgen_anon_1.popup;
+            let parent = wlr_xdg_surface_from_wlr_surface(popup.parent);
+            let mut parent_geo = Rectangle::ZERO.into();
+            wlr_xdg_surface_get_geometry(parent, &mut parent_geo);
+            Displacement {
+              dx: parent_geo.x + popup.geometry.x,
+              dy: parent_geo.y + popup.geometry.y,
+            }
+          } else {
+            Displacement::ZERO
+          }
+        }
+      },
+      Xwayland(_) => Displacement::ZERO,
+    }
   }
 
-  pub fn size(&self) -> Size {
-    let surface = self.surface();
-    Size {
-      width: unsafe { (*surface).current.width },
-      height: unsafe { (*surface).current.height },
+  pub fn extents(&self) -> Rectangle {
+    unsafe {
+      match self.surface_type {
+        Xdg(xdg_surface) => {
+          let mut wlr_box = Rectangle::ZERO.into();
+          wlr_xdg_surface_get_geometry(xdg_surface, &mut wlr_box);
+          Rectangle::from(wlr_box) + self.parent_offset()
+        },
+        Xwayland(xwayland_surface) => Rectangle {
+          top_left: Point { 
+            x: (*xwayland_surface).x as i32,
+            y: (*xwayland_surface).y as i32,
+          },
+          size: Size { 
+            width: (*xwayland_surface).width as i32,
+            height: (*xwayland_surface).height as i32, 
+          },
+        },
+      }
+    }
+  }
+
+  pub fn buffer_top_left(&self) -> Point {
+    unsafe {
+      let surface = &*self.surface();
+      let top_left = Point {
+        x: surface.current.dx,
+        y: surface.current.dy,
+      };
+      top_left + self.parent_offset()
+    }
+  }
+
+  pub fn buffer_size(&self) -> Size {
+    unsafe {
+      let surface = &*self.surface();
+      Size {
+        width: surface.current.width,
+        height: surface.current.height,
+      }
     }
   }
 
   pub fn is_inside(&self, point: &Point) -> bool {
-    Rectangle {
-      top_left: self.top_left(),
-      size: self.size(),
-    }
-    .contains(&point)
+    self.extents().contains(&point)
   }
 }
 
@@ -156,7 +204,6 @@ impl SurfaceManager {
     let surface = Rc::new(Surface {
       surface_type,
       mapped: RefCell::new(false),
-      top_left: Default::default(),
       event_manager: RefCell::new(None),
     });
     self.surfaces.push(surface.clone());

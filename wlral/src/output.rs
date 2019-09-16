@@ -1,4 +1,4 @@
-use crate::geometry::{Point, Rectangle, TransformMatrix};
+use crate::geometry::{Displacement, Point, Rectangle, TransformMatrix};
 use crate::surface::*;
 use std::cell::RefCell;
 use std::pin::Pin;
@@ -155,9 +155,9 @@ impl Output {
   }
 
   pub fn render_surface(&self, frame_time: &timespec, surface: Rc<Surface>) {
-    let wlr_surface = surface.surface();
-
     unsafe {
+      let wlr_surface = &mut *surface.surface();
+
       // We first obtain a wlr_texture, which is a GPU resource. wlroots
       // automatically handles negotiating these with the client. The underlying
       // resource could be an opaque handle passed from the client, or the client
@@ -176,13 +176,16 @@ impl Output {
       // wlr_output_layout_output_coords(
       //     view->server->output_layout, output, &ox, &oy);
       // ox += view->x + sx, oy += view->y + sy;
-      let top_left = surface.top_left() + self.top_left().as_displacement();
+      let top_left = self.top_left() + surface.buffer_top_left().as_displacement() + Displacement {
+        dx: wlr_surface.sx,
+        dy: wlr_surface.sy,
+      };
 
       // We also have to apply the scale factor for HiDPI outputs. This is only
       // part of the puzzle, TinyWL does not fully support HiDPI.
       let render_box = Rectangle {
         top_left: top_left * self.scale(),
-        size: surface.size() * self.scale(),
+        size: surface.buffer_size() * self.scale(),
       }
       .into();
 
@@ -195,7 +198,7 @@ impl Output {
       //
       // Naturally you can do this any way you like, for example to make a 3D
       // compositor.
-      let transform = wlr_output_transform_invert((*wlr_surface).current.transform);
+      let transform = wlr_output_transform_invert(wlr_surface.current.transform);
       let rotation = 0.0;
       let mut matrix = TransformMatrix::IDENTITY.clone();
       wlr_matrix_project_box(
