@@ -3,6 +3,7 @@ use crate::input::keyboard::*;
 use crate::input::seat::*;
 use crate::output::*;
 use crate::shell::xdg::*;
+use crate::shell::xwayland::*;
 use crate::surface::*;
 use std::cell::RefCell;
 use std::env;
@@ -16,12 +17,14 @@ pub struct Compositor {
   display: *mut wl_display,
   backend: *mut wlr_backend,
   renderer: *mut wlr_renderer,
+  compositor: *mut wlr_compositor,
 
   output_layout: *mut wlr_output_layout,
   output_manager: OutputManager,
 
   surface_manager: Rc<RefCell<SurfaceManager>>,
   xdg_manager: XdgManager,
+  xwayland_manager: XwaylandManager,
 
   seat_manager: SeatManager,
   cursor_manager: Rc<RefCell<CursorManager>>,
@@ -54,7 +57,7 @@ impl Compositor {
       // necessary for clients to allocate surfaces and the data device manager
       // handles the clipboard. Each of these wlroots interfaces has room for you
       // to dig your fingers in and play with their behavior if you want.
-      wlr_compositor_create(display, renderer);
+      let compositor = wlr_compositor_create(display, renderer);
       wlr_data_device_manager_create(display);
 
       // Configures a seat, which is a single "seat" at which a user sits and
@@ -72,14 +75,8 @@ impl Compositor {
       let output_manager =
         OutputManager::init(backend, renderer, surface_manager.clone(), output_layout);
 
-      // Set up our list of views and the xdg-shell. The xdg-shell is a Wayland
-      // protocol which is used for application windows.
-      // wl_list_init(&server.views);
-      // let xdg_shell = wlr_xdg_shell_create(display);
-      // server.new_xdg_surface.notify = server_new_xdg_surface;
-      // wl_signal_add(&server.xdg_shell->events.new_surface,
-      // 		&server.new_xdg_surface);
       let xdg_manager = XdgManager::init(display, surface_manager.clone());
+      let xwayland_manager = XwaylandManager::init(display, compositor, surface_manager.clone());
 
       let cursor_manager = Rc::new(RefCell::new(CursorManager::init(
         surface_manager.clone(),
@@ -126,12 +123,14 @@ impl Compositor {
         display,
         backend,
         renderer,
+        compositor,
 
         output_layout,
         output_manager,
 
         surface_manager,
         xdg_manager,
+        xwayland_manager,
 
         seat_manager,
         cursor_manager,
