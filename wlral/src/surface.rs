@@ -180,13 +180,18 @@ impl SurfaceManager {
       }
 
       if !old_surface.is_null() {
-        // TODO: Handle xwayalnd
         // Deactivate the previously focused surface. This lets the client know
         // it no longer has focus and the client will repaint accordingly, e.g.
         // stop displaying a caret.
-
-        let xdg_surface = wlr_xdg_surface_from_wlr_surface(old_surface);
-        wlr_xdg_toplevel_set_activated(xdg_surface, false);
+        if wlr_surface_is_xdg_surface(old_surface) {
+          let xdg_surface = wlr_xdg_surface_from_wlr_surface(old_surface);
+          wlr_xdg_toplevel_set_activated(xdg_surface, false);
+        } else if wlr_surface_is_xwayland_surface(old_surface) {
+          let xwayland_surface = wlr_xwayland_surface_from_wlr_surface(old_surface);
+          wlr_xwayland_surface_activate(xwayland_surface, true);
+        } else {
+          eprintln!("Unknown old surface type");
+        }
       }
 
       // Move the view to the front
@@ -198,7 +203,9 @@ impl SurfaceManager {
         Xdg(xdg_surface) => {
           wlr_xdg_toplevel_set_activated(xdg_surface, true);
         }
-        Xwayland(_) => panic!("Xwayland not yet supported"),
+        Xwayland(xwayland_surface) => {
+          wlr_xwayland_surface_activate(xwayland_surface, true);
+        }
       }
 
       // Tell the seat to have the keyboard enter this surface. wlroots will keep
