@@ -12,40 +12,6 @@ use std::{env, fs, io};
 fn main() {
   meson();
 
-  ///////////////////////////////////////////////////////////////
-  println!("cargo:rustc-link-lib=dylib=X11");
-  println!("cargo:rustc-link-lib=dylib=X11-xcb");
-  println!("cargo:rustc-link-lib=dylib=xkbcommon");
-  println!("cargo:rustc-link-lib=dylib=xcb");
-  println!("cargo:rustc-link-lib=dylib=xcb-composite");
-  println!("cargo:rustc-link-lib=dylib=xcb-xfixes");
-  println!("cargo:rustc-link-lib=dylib=xcb-image");
-  println!("cargo:rustc-link-lib=dylib=xcb-render");
-  println!("cargo:rustc-link-lib=dylib=xcb-shm");
-  println!("cargo:rustc-link-lib=dylib=xcb-icccm");
-  println!("cargo:rustc-link-lib=dylib=xcb-xkb");
-  println!("cargo:rustc-link-lib=dylib=xcb-xinput");
-  println!("cargo:rustc-link-lib=dylib=wayland-egl");
-  println!("cargo:rustc-link-lib=dylib=wayland-client");
-  println!("cargo:rustc-link-lib=dylib=wayland-server");
-  println!("cargo:rustc-link-lib=dylib=EGL");
-  println!("cargo:rustc-link-lib=dylib=GL");
-  println!("cargo:rustc-link-lib=dylib=gbm");
-  println!("cargo:rustc-link-lib=dylib=drm");
-  println!("cargo:rustc-link-lib=dylib=input");
-  println!("cargo:rustc-link-lib=dylib=udev");
-  println!("cargo:rustc-link-lib=dylib=dbus-1");
-  println!("cargo:rustc-link-lib=dylib=pixman-1");
-
-  link_optional_libs();
-
-  if !cfg!(feature = "static") {
-    println!("cargo:rustc-link-lib=dylib=wlroots");
-    println!("cargo:rustc-link-search=native=/usr/local/lib");
-  }
-  return;
-  ///////////////////////////////////////////////////////////////
-
   let protocol_header_path =
     generate_protocol_headers().expect("Could not generate header files for wayland protocols");
   let target_dir = env::var("OUT_DIR").expect("$OUT_DIR not set!");
@@ -77,11 +43,12 @@ fn main() {
     .blacklist_type("FP_SUBNORMAL")
     .blacklist_type("FP_NORMAL")
     // Work around duplicate wayland types from wlroots and wayland_sys
-    .blacklist_type(r"^wl_(display|list|listener|signal)$")
-    .raw_line("use wayland_server::sys::common::*;")
-    .raw_line("use wayland_server::sys::server::*;");
+    .blacklist_type(r"^wl_(display|list|listener|signal)$");
   if cfg!(feature = "unstable") {
-    builder = builder.clang_arg("-DWLR_USE_UNSTABLE");
+    builder = builder
+      .clang_arg("-DWLR_USE_UNSTABLE")
+      .raw_line("use wayland_server::sys::common::*;")
+      .raw_line("use wayland_server::sys::server::*;");
   }
   if !cfg!(feature = "static") {
     // config.h won't exist, so make a dummy file.
@@ -145,7 +112,7 @@ fn main() {
   }
 
   // generate the bindings
-  println!("cargo:rerun-if-changed={}", "src/gen.rs");
+  println!("cargo:rerun-if-changed={}", "src/wlroots.h");
   generated.write_to_file("src/gen.rs").unwrap();
 
   generate_protocols();

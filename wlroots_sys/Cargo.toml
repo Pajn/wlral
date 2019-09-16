@@ -20,7 +20,7 @@ wayland-scanner = "0.24.0"
 pkg-config = "0.3.16"
 
 [features]
-default = ["libcap", "systemd", "elogind", "xwayland", "x11_backend", "unstable", "static"]
+default = ["libcap", "systemd", "elogind", "xwayland", "x11_backend"]
 static = ["meson"]
 libcap = []
 systemd = []
