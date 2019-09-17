@@ -3,96 +3,22 @@ use crate::surface::*;
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::ptr;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::time::Instant;
 use wlroots_sys::*;
-
-pub trait OutputEventHandler {
-  fn frame(&mut self);
-}
-
-impl OutputEventHandler for Output {
-  fn frame(&mut self) {
-    unsafe {
-      // wlr_output_attach_render makes the OpenGL context current.
-      if !wlr_output_attach_render(self.output, ptr::null_mut()) {
-        return;
-      }
-      // The "effective" resolution can change if you rotate your outputs.
-      let mut width: i32 = 0;
-      let mut height: i32 = 0;
-      wlr_output_effective_resolution(self.output, &mut width, &mut height);
-      // Begin the renderer (calls glViewport and some other GL sanity checks)
-      wlr_renderer_begin(self.renderer, width, height);
-
-      let color = [0.3, 0.3, 0.3, 1.0];
-      wlr_renderer_clear(self.renderer, &color[0]);
-
-      let now = Instant::now();
-      let since_creation = now.duration_since(self.created_at);
-      let frame_time = timespec {
-        tv_sec: since_creation.as_secs() as i64,
-        tv_nsec: since_creation.subsec_nanos() as i64,
-      };
-
-      for surface in self.surface_manager.borrow().surfaces_to_render() {
-        self.render_surface(&frame_time, surface);
-      }
-
-      // Hardware cursors are rendered by the GPU on a separate plane, and can be
-      // moved around without re-rendering what's beneath them - which is more
-      // efficient. However, not all hardware supports hardware cursors. For this
-      // reason, wlroots provides a software fallback, which we ask it to render
-      // here. wlr_cursor handles configuring hardware vs software cursors for you,
-      // and this function is a no-op when hardware cursors are in use.
-      wlr_output_render_software_cursors(self.output, ptr::null_mut());
-
-      // Conclude rendering and swap the buffers, showing the final frame
-      // on-screen.
-      wlr_renderer_end(self.renderer);
-      wlr_output_commit(self.output);
-    }
-  }
-}
-
-wayland_listener!(
-  pub OutputEventManager,
-  Rc<RefCell<dyn OutputEventHandler>>,
-  [
-     frame => frame_func: |this: &mut OutputEventManager, _data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
-         handler.borrow_mut().frame()
-     };
-  ]
-);
 
 pub struct Output {
   renderer: *mut wlr_renderer,
   surface_manager: Rc<RefCell<SurfaceManager>>,
+  output_manager: Rc<RefCell<OutputManager>>,
   output_layout: *mut wlr_output_layout,
   output: *mut wlr_output,
   created_at: Instant,
 
-  event_manager: Option<Pin<Box<OutputEventManager>>>,
+  event_manager: RefCell<Option<Pin<Box<OutputEventManager>>>>,
 }
 
 impl Output {
-  pub fn from_ptr(
-    renderer: *mut wlr_renderer,
-    surface_manager: Rc<RefCell<SurfaceManager>>,
-    output_layout: *mut wlr_output_layout,
-    output: *mut wlr_output,
-  ) -> Output {
-    Output {
-      renderer,
-      surface_manager,
-      output,
-      output_layout,
-      created_at: Instant::now(),
-      event_manager: None,
-    }
-  }
-
   pub fn use_preferred_mode(&self) {
     unsafe {
       // Some backends don't have modes. DRM+KMS does, and we need to set a mode
@@ -196,32 +122,157 @@ impl Output {
       wlr_surface_send_frame_done(wlr_surface, frame_time);
     }
   }
+
+  fn frame(&self) {
+    unsafe {
+      // wlr_output_attach_render makes the OpenGL context current.
+      if !wlr_output_attach_render(self.output, ptr::null_mut()) {
+        return;
+      }
+      // The "effective" resolution can change if you rotate your outputs.
+      let mut width: i32 = 0;
+      let mut height: i32 = 0;
+      wlr_output_effective_resolution(self.output, &mut width, &mut height);
+      // Begin the renderer (calls glViewport and some other GL sanity checks)
+      wlr_renderer_begin(self.renderer, width, height);
+
+      let color = [0.3, 0.3, 0.3, 1.0];
+      wlr_renderer_clear(self.renderer, &color[0]);
+
+      let now = Instant::now();
+      let since_creation = now.duration_since(self.created_at);
+      let frame_time = timespec {
+        tv_sec: since_creation.as_secs() as i64,
+        tv_nsec: since_creation.subsec_nanos() as i64,
+      };
+
+      for surface in self.surface_manager.borrow().surfaces_to_render() {
+        self.render_surface(&frame_time, surface);
+      }
+
+      // Hardware cursors are rendered by the GPU on a separate plane, and can be
+      // moved around without re-rendering what's beneath them - which is more
+      // efficient. However, not all hardware supports hardware cursors. For this
+      // reason, wlroots provides a software fallback, which we ask it to render
+      // here. wlr_cursor handles configuring hardware vs software cursors for you,
+      // and this function is a no-op when hardware cursors are in use.
+      wlr_output_render_software_cursors(self.output, ptr::null_mut());
+
+      // Conclude rendering and swap the buffers, showing the final frame
+      // on-screen.
+      wlr_renderer_end(self.renderer);
+      wlr_output_commit(self.output);
+    }
+  }
+
+  fn destroy(&self) {
+    println!("dfestroy output");
+    self.output_manager.borrow_mut().destroy_output(&self)
+  }
 }
+
+wayland_listener!(
+  pub OutputEventManager,
+  Weak<Output>,
+  [
+    frame => frame_func: |this: &mut OutputEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      if let Some(handler) = handler.upgrade() {
+        handler.frame();
+      }
+    };
+    destroy => destroy_func: |this: &mut OutputEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      if let Some(handler) = handler.upgrade() {
+        handler.destroy();
+      }
+    };
+  ]
+);
 
 pub trait OutputEvents {
   fn bind_events(&self);
 }
 
-impl OutputEvents for Rc<RefCell<Output>> {
+impl OutputEvents for Rc<Output> {
   fn bind_events(&self) {
-    let mut event_manager = OutputEventManager::new(self.clone());
+    let mut event_manager = OutputEventManager::new(Rc::downgrade(self));
 
     unsafe {
-      event_manager.frame(&mut (*self.borrow().output).events.frame);
+      event_manager.frame(&mut (*self.output).events.frame);
+      event_manager.destroy(&mut (*self.output).events.destroy);
     }
 
-    self.borrow_mut().event_manager = Some(event_manager);
+    *self.event_manager.borrow_mut() = Some(event_manager);
   }
 }
 
-pub struct OutputManagerEventHandler {
+wayland_listener!(
+  pub OutputManagerEventManager,
+  Rc<RefCell<OutputManager>>,
+  [
+    new_output => new_output_func: |this: &mut OutputManagerEventManager, data: *mut libc::c_void,| unsafe {
+      let ref mut manager = this.data;
+      let renderer = manager.borrow().renderer;
+      let surface_manager = manager.borrow().surface_manager.clone();
+      let output_manager = manager.clone();
+      let output_layout = manager.borrow().output_layout;
+      manager.borrow_mut().new_output(
+        Output {
+          renderer,
+          surface_manager,
+          output_manager,
+          output_layout,
+          output: data as *mut wlr_output,
+          created_at: Instant::now(),
+          event_manager: RefCell::new(None),
+        }
+      );
+    };
+  ]
+);
+
+#[allow(unused)]
+pub struct OutputManager {
   renderer: *mut wlr_renderer,
   surface_manager: Rc<RefCell<SurfaceManager>>,
   output_layout: *mut wlr_output_layout,
-  outputs: Vec<Rc<RefCell<Output>>>,
+  outputs: Vec<Rc<Output>>,
+
+  event_manager: Option<Pin<Box<OutputManagerEventManager>>>,
 }
 
-impl OutputManagerEventHandler {
+impl OutputManager {
+  pub fn init(
+    backend: *mut wlr_backend,
+    renderer: *mut wlr_renderer,
+    surface_manager: Rc<RefCell<SurfaceManager>>,
+    output_layout: *mut wlr_output_layout,
+  ) -> Rc<RefCell<OutputManager>> {
+    let output_manager = Rc::new(RefCell::new(OutputManager {
+      renderer,
+      surface_manager,
+      output_layout,
+      outputs: vec![],
+
+      event_manager: None,
+    }));
+
+    println!("OutputManager::init prebind");
+
+    let mut event_manager = OutputManagerEventManager::new(output_manager.clone());
+
+    unsafe {
+      event_manager.new_output(&mut (*backend).events.new_output);
+    }
+
+    output_manager.borrow_mut().event_manager = Some(event_manager);
+
+    println!("OutputManager::init postbind");
+
+    output_manager
+  }
+
   fn new_output(&mut self, output: Output) {
     println!("new_output");
 
@@ -240,60 +291,55 @@ impl OutputManagerEventHandler {
       wlr_output_create_global(output.output);
     }
 
-    let output = Rc::new(RefCell::new(output));
+    let output = Rc::new(output);
 
     output.bind_events();
 
     self.outputs.push(output);
   }
+
+  pub fn destroy_output(&mut self, destroyed_output: &Output) {
+    self
+      .outputs
+      .retain(|output| output.output != destroyed_output.output);
+  }
 }
 
-wayland_listener!(
-  pub OutputManagerEventManager,
-  Rc<RefCell<OutputManagerEventHandler>>,
-  [
-     new_output => new_output_func: |this: &mut OutputManagerEventManager, data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
-         let renderer = handler.borrow().renderer;
-         let surface_manager = handler.borrow().surface_manager.clone();
-         let output_layout = handler.borrow().output_layout;
-         handler.borrow_mut().new_output(Output::from_ptr(renderer, surface_manager, output_layout, data as *mut wlr_output))
-     };
-  ]
-);
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::ptr;
+  use std::rc::Rc;
 
-#[allow(unused)]
-pub struct OutputManager {
-  event_manager: Pin<Box<OutputManagerEventManager>>,
-  event_handler: Rc<RefCell<OutputManagerEventHandler>>,
-}
-
-impl OutputManager {
-  pub fn init(
-    backend: *mut wlr_backend,
-    renderer: *mut wlr_renderer,
-    surface_manager: Rc<RefCell<SurfaceManager>>,
-    output_layout: *mut wlr_output_layout,
-  ) -> OutputManager {
-    println!("OutputManager::init prebind");
-
-    let event_handler = Rc::new(RefCell::new(OutputManagerEventHandler {
-      renderer,
-      surface_manager,
-      output_layout,
+  #[test]
+  fn it_drops_and_cleans_up_on_destroy() {
+    let surface_manager = Rc::new(RefCell::new(SurfaceManager::init(ptr::null_mut())));
+    let output_manager = Rc::new(RefCell::new(OutputManager {
+      renderer: ptr::null_mut(),
+      surface_manager: surface_manager.clone(),
+      output_layout: ptr::null_mut(),
       outputs: vec![],
+
+      event_manager: None,
     }));
+    let output = Rc::new(Output {
+      renderer: ptr::null_mut(),
+      surface_manager: surface_manager.clone(),
+      output_manager: output_manager.clone(),
+      output_layout: ptr::null_mut(),
+      output: ptr::null_mut(),
+      created_at: Instant::now(),
+      event_manager: RefCell::new(None),
+    });
 
-    let mut event_manager = OutputManagerEventManager::new(event_handler.clone());
-    unsafe {
-      event_manager.new_output(&mut (*backend).events.new_output);
-    }
+    output_manager.borrow_mut().outputs.push(output.clone());
 
-    println!("OutputManager::init postbind");
+    let weak_output = Rc::downgrade(&output);
+    drop(output);
 
-    OutputManager {
-      event_manager,
-      event_handler,
-    }
+    weak_output.upgrade().unwrap().destroy();
+
+    assert!(output_manager.borrow().outputs.len() == 0);
+    assert!(weak_output.upgrade().is_none());
   }
 }

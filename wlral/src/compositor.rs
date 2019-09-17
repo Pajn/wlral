@@ -20,7 +20,7 @@ pub struct Compositor {
   compositor: *mut wlr_compositor,
 
   output_layout: *mut wlr_output_layout,
-  output_manager: OutputManager,
+  output_manager: Rc<RefCell<OutputManager>>,
 
   surface_manager: Rc<RefCell<SurfaceManager>>,
   xdg_manager: XdgManager,
