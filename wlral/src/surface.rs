@@ -276,8 +276,8 @@ impl SurfaceManager {
 
 #[cfg(test)]
 mod tests {
-  use crate::test_util::*;
   use super::*;
+  use crate::test_util::*;
   use std::ptr;
   use std::rc::Rc;
 
@@ -287,7 +287,7 @@ mod tests {
     let surface = surface_manager
       .borrow_mut()
       .new_surface(SurfaceType::Xdg(ptr::null_mut()));
-    
+
     let map_signal = WlSignal::new();
     let unmap_signal = WlSignal::new();
     let destroy_signal = WlSignal::new();
@@ -305,7 +305,7 @@ mod tests {
     assert!(destroy_signal.listener_count() == 1);
 
     destroy_signal.emit();
-    
+
     assert!(destroy_signal.listener_count() == 0);
     assert!(surface_manager.borrow().surfaces.len() == 0);
     assert!(weak_surface.upgrade().is_none());

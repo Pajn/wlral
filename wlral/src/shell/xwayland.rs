@@ -38,6 +38,8 @@ wayland_listener!(
 
 #[allow(unused)]
 pub struct XwaylandManager {
+  xwayland: *mut wlr_xwayland,
+
   event_manager: Pin<Box<XwaylandEventManager>>,
   event_handler: Rc<RefCell<XwaylandEventHandler>>,
 }
@@ -72,8 +74,18 @@ impl XwaylandManager {
     println!("XwaylandManager::init postbind");
 
     XwaylandManager {
+      xwayland,
+
       event_manager,
       event_handler,
+    }
+  }
+}
+
+impl Drop for XwaylandManager {
+  fn drop(&mut self) {
+    unsafe {
+      wlr_xwayland_destroy(self.xwayland);
     }
   }
 }

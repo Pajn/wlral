@@ -36,6 +36,8 @@ wayland_listener!(
 
 #[allow(unused)]
 pub struct XdgManager {
+  xdg_shell: *mut wlr_xdg_shell,
+
   event_manager: Pin<Box<XdgEventManager>>,
   event_handler: Rc<RefCell<XdgEventHandler>>,
 }
@@ -61,8 +63,18 @@ impl XdgManager {
     println!("XdgManager::init postbind");
 
     XdgManager {
+      xdg_shell,
+
       event_manager,
       event_handler,
+    }
+  }
+}
+
+impl Drop for XdgManager {
+  fn drop(&mut self) {
+    unsafe {
+      wlr_xdg_shell_destroy(self.xdg_shell);
     }
   }
 }

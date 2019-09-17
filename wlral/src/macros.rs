@@ -162,7 +162,6 @@ macro_rules! wayland_listener {
   }
 }
 
-
 #[cfg(test)]
 mod tests {
   use crate::test_util::*;
@@ -181,7 +180,7 @@ mod tests {
   #[test]
   fn it_cleans_up_on_drop() {
     let mut event_manager = EventManager::new(0);
-    
+
     let map_signal = WlSignal::new();
     let unmap_signal = WlSignal::new();
     let destroy_signal = WlSignal::new();
@@ -197,7 +196,7 @@ mod tests {
     assert!(destroy_signal.listener_count() == 1);
 
     drop(event_manager);
-    
+
     assert!(map_signal.listener_count() == 0);
     assert!(unmap_signal.listener_count() == 0);
     assert!(destroy_signal.listener_count() == 0);
@@ -206,7 +205,7 @@ mod tests {
   #[test]
   fn it_does_handle_not_beeing_bound_on_drop() {
     let mut event_manager = EventManager::new(0);
-    
+
     let map_signal = WlSignal::new();
     let unmap_signal = WlSignal::new();
     let destroy_signal = WlSignal::new();
@@ -220,7 +219,7 @@ mod tests {
     assert!(destroy_signal.listener_count() == 0);
 
     drop(event_manager);
-    
+
     assert!(map_signal.listener_count() == 0);
     assert!(unmap_signal.listener_count() == 0);
     assert!(destroy_signal.listener_count() == 0);

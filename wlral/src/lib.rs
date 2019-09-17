@@ -13,9 +13,12 @@ pub mod surface;
 #[cfg(test)]
 pub mod test_util {
   use std::ptr;
+  use wayland_sys::common::wl_list;
   use wayland_sys::ffi_dispatch;
-  use wayland_sys::common::{wl_list};
-  use wayland_sys::server::{WAYLAND_SERVER_HANDLE, wl_signal, signal::{wl_signal_emit, wl_signal_init}};
+  use wayland_sys::server::{
+    signal::{wl_signal_emit, wl_signal_init},
+    wl_signal, WAYLAND_SERVER_HANDLE,
+  };
 
   pub struct WlSignal(*mut wl_signal);
 
@@ -25,7 +28,7 @@ pub mod test_util {
         listener_list: wl_list {
           next: ptr::null_mut(),
           prev: ptr::null_mut(),
-        }
+        },
       }));
       unsafe {
         wl_signal_init(signal);
@@ -44,8 +47,12 @@ pub mod test_util {
     }
 
     pub fn listener_count(&self) -> i32 {
-      unsafe { 
-        ffi_dispatch!(WAYLAND_SERVER_HANDLE, wl_list_length, &(*self.0).listener_list)
+      unsafe {
+        ffi_dispatch!(
+          WAYLAND_SERVER_HANDLE,
+          wl_list_length,
+          &(*self.0).listener_list
+        )
       }
     }
   }
