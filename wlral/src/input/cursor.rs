@@ -5,7 +5,6 @@ use std::ffi::CString;
 use std::pin::Pin;
 use std::ptr;
 use std::rc::Rc;
-use wayland_sys::server::signal::wl_signal_add;
 use wlroots_sys::*;
 
 pub struct Cursor {
@@ -251,18 +250,12 @@ impl CursorManager {
 
     let mut event_manager = CursorEventManager::new(event_handler.clone());
     unsafe {
-      wl_signal_add(
-        &mut (*seat).events.request_set_cursor,
-        event_manager.request_set_cursor(),
-      );
-      wl_signal_add(&mut (*cursor).events.motion, event_manager.motion());
-      wl_signal_add(
-        &mut (*cursor).events.motion_absolute,
-        event_manager.motion_absolute(),
-      );
-      wl_signal_add(&mut (*cursor).events.button, event_manager.button());
-      wl_signal_add(&mut (*cursor).events.axis, event_manager.axis());
-      wl_signal_add(&mut (*cursor).events.frame, event_manager.frame());
+      event_manager.request_set_cursor(&mut (*seat).events.request_set_cursor);
+      event_manager.motion(&mut (*cursor).events.motion);
+      event_manager.motion_absolute(&mut (*cursor).events.motion_absolute);
+      event_manager.button(&mut (*cursor).events.button);
+      event_manager.axis(&mut (*cursor).events.axis);
+      event_manager.frame(&mut (*cursor).events.frame);
     }
 
     println!("CursorManager::init postbind");

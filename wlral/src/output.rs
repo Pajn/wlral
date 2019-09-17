@@ -5,7 +5,6 @@ use std::pin::Pin;
 use std::ptr;
 use std::rc::Rc;
 use std::time::Instant;
-use wayland_sys::server::signal::wl_signal_add;
 use wlroots_sys::*;
 
 pub trait OutputEventHandler {
@@ -208,10 +207,7 @@ impl OutputEvents for Rc<RefCell<Output>> {
     let mut event_manager = OutputEventManager::new(self.clone());
 
     unsafe {
-      wl_signal_add(
-        &mut (*self.borrow().output).events.frame,
-        event_manager.frame(),
-      );
+      event_manager.frame(&mut (*self.borrow().output).events.frame);
     }
 
     self.borrow_mut().event_manager = Some(event_manager);
@@ -290,10 +286,7 @@ impl OutputManager {
 
     let mut event_manager = OutputManagerEventManager::new(event_handler.clone());
     unsafe {
-      wl_signal_add(
-        &mut (*backend).events.new_output,
-        event_manager.new_output(),
-      );
+      event_manager.new_output(&mut (*backend).events.new_output);
     }
 
     println!("OutputManager::init postbind");

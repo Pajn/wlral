@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::pin::Pin;
 use std::ptr;
 use std::rc::Rc;
-use wayland_sys::server::signal::wl_signal_add;
 use wlroots_sys::*;
 
 pub struct Keyboard {
@@ -49,11 +48,8 @@ impl Keyboard {
       println!("Keyboard::init prebind");
 
       let mut event_manager = KeyboardEventManager::new(keyboard.clone());
-      wl_signal_add(
-        &mut (*keyboard_ptr).events.modifiers,
-        event_manager.modifiers(),
-      );
-      wl_signal_add(&mut (*keyboard_ptr).events.key, event_manager.key());
+      event_manager.modifiers(&mut (*keyboard_ptr).events.modifiers);
+      event_manager.key(&mut (*keyboard_ptr).events.key);
       *keyboard.event_manager.borrow_mut() = Some(event_manager);
 
       println!("Keyboard::init postbind");

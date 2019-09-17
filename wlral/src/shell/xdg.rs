@@ -2,7 +2,7 @@ use crate::surface::*;
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
-use wayland_sys::server::{signal::wl_signal_add, wl_display};
+use wayland_sys::server::wl_display;
 use wlroots_sys::*;
 
 pub struct XdgEventHandler {
@@ -16,9 +16,9 @@ impl XdgEventHandler {
       .borrow_mut()
       .new_surface(SurfaceType::Xdg(xdg_surface));
     surface.bind_events(self.surface_manager.clone(), |event_manager| unsafe {
-      wl_signal_add(&mut (*xdg_surface).events.map, event_manager.map());
-      wl_signal_add(&mut (*xdg_surface).events.unmap, event_manager.unmap());
-      wl_signal_add(&mut (*xdg_surface).events.destroy, event_manager.destroy());
+      event_manager.map(&mut (*xdg_surface).events.map);
+      event_manager.unmap(&mut (*xdg_surface).events.unmap);
+      event_manager.destroy(&mut (*xdg_surface).events.destroy);
     })
   }
 }
@@ -55,10 +55,7 @@ impl XdgManager {
 
     let mut event_manager = XdgEventManager::new(event_handler.clone());
     unsafe {
-      wl_signal_add(
-        &mut (*xdg_shell).events.new_surface,
-        event_manager.new_surface(),
-      );
+      event_manager.new_surface(&mut (*xdg_shell).events.new_surface);
     }
 
     println!("XdgManager::init postbind");

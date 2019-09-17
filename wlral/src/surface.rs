@@ -2,7 +2,7 @@ use crate::geometry::{Displacement, Point, Rectangle, Size};
 use std::cell::RefCell;
 use std::cmp::PartialEq;
 use std::pin::Pin;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use wlroots_sys::*;
 
 #[derive(Debug)]
@@ -119,7 +119,7 @@ impl SurfaceEvents for Rc<Surface> {
     F: Fn(&mut SurfaceEventManager) -> (),
   {
     let event_handler = SurfaceEventHandler {
-      surface: self.clone(),
+      surface: Rc::downgrade(self),
       surface_manager: surface_manager.clone(),
     };
     let mut event_manager = SurfaceEventManager::new(event_handler);
@@ -129,24 +129,30 @@ impl SurfaceEvents for Rc<Surface> {
 }
 
 pub struct SurfaceEventHandler {
-  surface: Rc<Surface>,
+  surface: Weak<Surface>,
   surface_manager: Rc<RefCell<SurfaceManager>>,
 }
 
 impl SurfaceEventHandler {
   fn map(&mut self) {
-    *self.surface.mapped.borrow_mut() = true;
+    if let Some(surface) = self.surface.upgrade() {
+      *surface.mapped.borrow_mut() = true;
+    }
   }
 
   fn unmap(&mut self) {
-    *self.surface.mapped.borrow_mut() = false;
+    if let Some(surface) = self.surface.upgrade() {
+      *surface.mapped.borrow_mut() = false;
+    }
   }
 
   fn destroy(&mut self) {
-    self
-      .surface_manager
-      .borrow_mut()
-      .destroy_surface(self.surface.clone());
+    if let Some(surface) = self.surface.upgrade() {
+      self
+        .surface_manager
+        .borrow_mut()
+        .destroy_surface(surface.clone());
+    }
   }
 }
 
@@ -164,7 +170,7 @@ wayland_listener!(
      };
      destroy => destroy_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
          let ref mut handler = this.data;
-         handler.destroy()
+         handler.destroy();
      };
   ]
 );
@@ -265,5 +271,43 @@ impl SurfaceManager {
         &mut (*keyboard).modifiers,
       );
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use crate::test_util::*;
+  use super::*;
+  use std::ptr;
+  use std::rc::Rc;
+
+  #[test]
+  fn it_drops_and_cleans_up_on_destroy() {
+    let surface_manager = Rc::new(RefCell::new(SurfaceManager::init(ptr::null_mut())));
+    let surface = surface_manager
+      .borrow_mut()
+      .new_surface(SurfaceType::Xdg(ptr::null_mut()));
+    
+    let map_signal = WlSignal::new();
+    let unmap_signal = WlSignal::new();
+    let destroy_signal = WlSignal::new();
+
+    surface.bind_events(surface_manager.clone(), |event_manager| unsafe {
+      event_manager.map(map_signal.ptr());
+      event_manager.unmap(unmap_signal.ptr());
+      event_manager.destroy(destroy_signal.ptr());
+    });
+
+    let weak_surface = Rc::downgrade(&surface);
+    drop(surface);
+
+    assert!(weak_surface.upgrade().is_some());
+    assert!(destroy_signal.listener_count() == 1);
+
+    destroy_signal.emit();
+    
+    assert!(destroy_signal.listener_count() == 0);
+    assert!(surface_manager.borrow().surfaces.len() == 0);
+    assert!(weak_surface.upgrade().is_none());
   }
 }

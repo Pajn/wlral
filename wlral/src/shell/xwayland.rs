@@ -4,7 +4,7 @@ use std::env;
 use std::ffi::CStr;
 use std::pin::Pin;
 use std::rc::Rc;
-use wayland_sys::server::{signal::wl_signal_add, wl_display};
+use wayland_sys::server::wl_display;
 use wlroots_sys::*;
 
 pub struct XwaylandEventHandler {
@@ -18,12 +18,9 @@ impl XwaylandEventHandler {
       .borrow_mut()
       .new_surface(SurfaceType::Xwayland(xwayland_surface));
     surface.bind_events(self.surface_manager.clone(), |event_manager| unsafe {
-      wl_signal_add(&mut (*xwayland_surface).events.map, event_manager.map());
-      wl_signal_add(&mut (*xwayland_surface).events.unmap, event_manager.unmap());
-      wl_signal_add(
-        &mut (*xwayland_surface).events.destroy,
-        event_manager.destroy(),
-      );
+      event_manager.map(&mut (*xwayland_surface).events.map);
+      event_manager.unmap(&mut (*xwayland_surface).events.unmap);
+      event_manager.destroy(&mut (*xwayland_surface).events.destroy);
     })
   }
 }
@@ -69,10 +66,7 @@ impl XwaylandManager {
 
     let mut event_manager = XwaylandEventManager::new(event_handler.clone());
     unsafe {
-      wl_signal_add(
-        &mut xwayland.events.new_surface,
-        event_manager.new_surface(),
-      );
+      event_manager.new_surface(&mut xwayland.events.new_surface);
     }
 
     println!("XwaylandManager::init postbind");

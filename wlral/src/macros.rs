@@ -90,32 +90,39 @@ macro_rules! wayland_listener {
     #[repr(C)]
     $pub struct $struct_name {
         data: $data,
-        $($($listener: $crate::wayland_sys::server::wl_listener),*)*
+        $($($listener: Option<$crate::wayland_sys::server::wl_listener>),*)*
     }
 
     impl $struct_name {
-      pub(crate) fn new(data: $data) -> Pin<Box<$struct_name>> {
-        Pin::new(Box::new($struct_name {
+      pub(crate) fn new(data: $data) -> ::std::pin::Pin<Box<$struct_name>> {
+        ::std::pin::Pin::new(Box::new($struct_name {
           data,
-          $($($listener: unsafe {
+          $($($listener: None),*)*
+        }))
+      }
+
+      $($(pub(crate) unsafe extern "C" fn $listener(&mut self, signal: *mut $crate::wayland_sys::server::wl_signal) {
+          if self.$listener.is_some() {
+            self.$listener = None;
+            panic!("Listener $listener is already bound");
+          }
+          self.$listener = Some({
             // NOTE Rationale for zeroed memory:
             // * Need to pass a pointer to wl_list_init
             // * The list is initialized by Wayland, which doesn't "drop"
             // * The listener is written to without dropping any of the data
             let mut listener: $crate::wayland_sys::server::wl_listener = ::std::mem::zeroed();
-            use $crate::wayland_sys::server::WAYLAND_SERVER_HANDLE;
+            use $crate::wayland_sys::{ffi_dispatch, server::WAYLAND_SERVER_HANDLE};
             ffi_dispatch!(WAYLAND_SERVER_HANDLE,
                           wl_list_init,
                           &mut listener.link as *mut _ as _);
             ::std::ptr::write(&mut listener.notify, $struct_name::$listener_func);
             listener
-          }),*)*
-        }))
-      }
-
-      $($(pub(crate) unsafe extern "C" fn $listener(&mut self)
-                                              -> *mut $crate::wayland_sys::server::wl_listener {
-          &mut self.$listener as *mut _
+          });
+          $crate::wayland_sys::server::signal::wl_signal_add(
+            signal,
+            self.$listener.as_ref().map_or_else(::std::ptr::null_mut, |x| x as *const _ as *mut _)
+          );
       })*)*
 
       $($(pub(crate) unsafe extern "C" fn $listener_func(listener:
@@ -135,5 +142,87 @@ macro_rules! wayland_listener {
         (|$($func_arg: $func_type,)*| { $body })(manager, data)
       })*)*
     }
+
+    impl Drop for $struct_name {
+      fn drop(&mut self) {
+        unsafe {
+          use $crate::wayland_sys::{ffi_dispatch, server::WAYLAND_SERVER_HANDLE};
+          $($(
+            if let Some(listener) = self.$listener.as_ref() {
+              ffi_dispatch!(
+                WAYLAND_SERVER_HANDLE,
+                wl_list_remove,
+                &listener.link as *const _ as *mut _
+              );
+            }
+          )*)*
+        }
+      }
+    }
+  }
+}
+
+
+#[cfg(test)]
+mod tests {
+  use crate::test_util::*;
+  use wlroots_sys::libc;
+
+  wayland_listener!(
+    pub EventManager,
+    u8,
+    [
+      map => map_func: |_this: &mut EventManager, _data: *mut libc::c_void,| unsafe {};
+      unmap => unmap_func: |_this: &mut EventManager, _data: *mut libc::c_void,| unsafe {};
+      destroy => destroy_func: |_this: &mut EventManager, _data: *mut libc::c_void,| unsafe {};
+    ]
+  );
+
+  #[test]
+  fn it_cleans_up_on_drop() {
+    let mut event_manager = EventManager::new(0);
+    
+    let map_signal = WlSignal::new();
+    let unmap_signal = WlSignal::new();
+    let destroy_signal = WlSignal::new();
+
+    unsafe {
+      event_manager.map(map_signal.ptr());
+      event_manager.unmap(unmap_signal.ptr());
+      event_manager.destroy(destroy_signal.ptr());
+    }
+
+    assert!(map_signal.listener_count() == 1);
+    assert!(unmap_signal.listener_count() == 1);
+    assert!(destroy_signal.listener_count() == 1);
+
+    drop(event_manager);
+    
+    assert!(map_signal.listener_count() == 0);
+    assert!(unmap_signal.listener_count() == 0);
+    assert!(destroy_signal.listener_count() == 0);
+  }
+
+  #[test]
+  fn it_does_handle_not_beeing_bound_on_drop() {
+    let mut event_manager = EventManager::new(0);
+    
+    let map_signal = WlSignal::new();
+    let unmap_signal = WlSignal::new();
+    let destroy_signal = WlSignal::new();
+
+    unsafe {
+      event_manager.map(map_signal.ptr());
+    }
+
+    assert!(map_signal.listener_count() == 1);
+    assert!(unmap_signal.listener_count() == 0);
+    assert!(destroy_signal.listener_count() == 0);
+
+    drop(event_manager);
+    
+    assert!(map_signal.listener_count() == 0);
+    assert!(unmap_signal.listener_count() == 0);
+    assert!(destroy_signal.listener_count() == 0);
   }
 }

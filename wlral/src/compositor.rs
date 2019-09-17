@@ -91,14 +91,6 @@ impl Compositor {
         keyboard_manager.clone(),
       );
 
-      // * Configures a seat, which is a single "seat" at which a user sits and
-      // * operates the computer. This conceptually includes up to one keyboard,
-      // * pointer, touch, and drawing tablet device. We also rig up a listener to
-      // * let us know when new input devices are available on the backend.
-      // wl_list_init(&server.keyboards);
-      // server.new_input.notify = server_new_input;
-      // wl_signal_add(&server.backend->events.new_input, &server.new_input);
-
       // Add a Unix socket to the Wayland display.
       let socket = ffi_dispatch!(WAYLAND_SERVER_HANDLE, wl_display_add_socket_auto, display);
       if socket.is_null() {

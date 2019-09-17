@@ -3,7 +3,6 @@ use crate::input::keyboard::KeyboardManager;
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
-use wayland_sys::server::signal::wl_signal_add;
 use wlroots_sys::*;
 
 mod wl_seat_capability {
@@ -85,7 +84,7 @@ impl SeatManager {
 
     let mut event_manager = SeatEventManager::new(event_handler.clone());
     unsafe {
-      wl_signal_add(&mut (*backend).events.new_input, event_manager.new_input());
+      event_manager.new_input(&mut (*backend).events.new_input);
     }
 
     println!("SeatManager::init postbind");
