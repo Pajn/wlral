@@ -176,14 +176,12 @@ wayland_listener!(
   Weak<Output>,
   [
     frame => frame_func: |this: &mut OutputEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
-      if let Some(handler) = handler.upgrade() {
+      if let Some(handler) = this.data.upgrade() {
         handler.frame();
       }
     };
     destroy => destroy_func: |this: &mut OutputEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
-      if let Some(handler) = handler.upgrade() {
+      if let Some(handler) = this.data.upgrade() {
         handler.destroy();
       }
     };

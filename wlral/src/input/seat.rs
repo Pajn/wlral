@@ -1,5 +1,5 @@
 use crate::input::cursor::CursorManager;
-use crate::input::keyboard::KeyboardManager;
+use crate::input::keyboard::{KeyboardManager, KeyboardManagerExt};
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -26,10 +26,7 @@ impl SeatEventHandler {
       if (*device).type_ == wlr_input_device_type_WLR_INPUT_DEVICE_POINTER {
         self.cursor_manager.borrow_mut().add_pointer_device(device);
       } else if (*device).type_ == wlr_input_device_type_WLR_INPUT_DEVICE_KEYBOARD {
-        self
-          .keyboard_manager
-          .borrow_mut()
-          .add_keyboard_device(device);
+        self.keyboard_manager.add_keyboard_device(device);
 
         wlr_seat_set_keyboard(self.seat, device);
       }

@@ -160,18 +160,18 @@ wayland_listener!(
   pub SurfaceEventManager,
   SurfaceEventHandler,
   [
-     map => map_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
-         handler.map()
-     };
-     unmap => unmap_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
-         handler.unmap()
-     };
-     destroy => destroy_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
-         handler.destroy();
-     };
+    map => map_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.map()
+    };
+    unmap => unmap_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.unmap()
+    };
+    destroy => destroy_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.destroy();
+    };
   ]
 );
 
