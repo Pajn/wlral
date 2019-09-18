@@ -78,11 +78,7 @@ impl Compositor {
       let xdg_manager = XdgManager::init(display, surface_manager.clone());
       let xwayland_manager = XwaylandManager::init(display, compositor, surface_manager.clone());
 
-      let cursor_manager = Rc::new(RefCell::new(CursorManager::init(
-        surface_manager.clone(),
-        output_layout,
-        seat,
-      )));
+      let cursor_manager = CursorManager::init(surface_manager.clone(), output_layout, seat);
       let keyboard_manager = Rc::new(RefCell::new(KeyboardManager::init(seat)));
       let seat_manager = SeatManager::init(
         backend,

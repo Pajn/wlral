@@ -1,21 +1,76 @@
 use crate::geometry::FPoint;
+use crate::input::seat::{Device, InputDeviceManager};
 use crate::surface::SurfaceManager;
 use std::cell::RefCell;
 use std::ffi::CString;
+use std::ops::Deref;
 use std::pin::Pin;
 use std::ptr;
 use std::rc::Rc;
 use wlroots_sys::*;
 
-pub struct Cursor {
-  surface_manager: Rc<RefCell<SurfaceManager>>,
+#[allow(unused)]
+pub struct CursorManager {
+  seat: *mut wlr_seat,
   cursor: *mut wlr_cursor,
   cursor_mgr: *mut wlr_xcursor_manager,
-  seat: *mut wlr_seat,
+  pointers: Vec<Rc<Device>>,
+  surface_manager: Rc<RefCell<SurfaceManager>>,
+
+  event_manager: Option<Pin<Box<CursorEventManager>>>,
 }
 
-impl Cursor {
-  fn position(&self) -> FPoint {
+impl CursorManager {
+  pub fn init(
+    surface_manager: Rc<RefCell<SurfaceManager>>,
+    output_layout: *mut wlr_output_layout,
+    seat: *mut wlr_seat,
+  ) -> Rc<RefCell<CursorManager>> {
+    // Creates a cursor, which is a wlroots utility for tracking the cursor
+    // image shown on screen.
+    let cursor = unsafe { wlr_cursor_create() };
+    unsafe { wlr_cursor_attach_output_layout(cursor, output_layout) };
+
+    // Creates an xcursor manager, another wlroots utility which loads up
+    // Xcursor themes to source cursor images from and makes sure that cursor
+    // images are available at all scale factors on the screen (necessary for
+    // HiDPI support). We add a cursor theme at scale factor 1 to begin with.
+    let cursor_mgr = unsafe { wlr_xcursor_manager_create(ptr::null(), 24) };
+    unsafe { wlr_xcursor_manager_load(cursor_mgr, 1.0) };
+
+    let cursor_manager = Rc::new(RefCell::new(CursorManager {
+      seat,
+      cursor,
+      cursor_mgr,
+      pointers: vec![],
+      surface_manager,
+
+      event_manager: None,
+    }));
+
+    println!("CursorManager::init prebind");
+
+    let mut event_manager = CursorEventManager::new(cursor_manager.clone());
+    unsafe {
+      event_manager.request_set_cursor(&mut (*seat).events.request_set_cursor);
+      event_manager.motion(&mut (*cursor).events.motion);
+      event_manager.motion_absolute(&mut (*cursor).events.motion_absolute);
+      event_manager.button(&mut (*cursor).events.button);
+      event_manager.axis(&mut (*cursor).events.axis);
+      event_manager.frame(&mut (*cursor).events.frame);
+    }
+    cursor_manager.borrow_mut().event_manager = Some(event_manager);
+
+    println!("CursorManager::init postbind");
+
+    cursor_manager
+  }
+
+  pub fn has_pointer_device(&self) -> bool {
+    !self.pointers.is_empty()
+  }
+
+  pub fn position(&self) -> FPoint {
     unsafe {
       FPoint {
         x: (*self.cursor).x,
@@ -24,7 +79,7 @@ impl Cursor {
     }
   }
 
-  fn process_motion(&mut self, time: u32) {
+  fn process_motion(&self, time: u32) {
     // TODO: let window manager handle motion
     unsafe {
       let position = self.position();
@@ -38,7 +93,7 @@ impl Cursor {
         // cursor has entered one of its surfaces.
         //
         // Note that this gives the surface "pointer focus", which is distinct
-        // from keyboard focus. You get pointer focus by moving the pointer over
+        // from cursor focus. You get pointer focus by moving the pointer over
         // a window.
         wlr_seat_pointer_notify_enter(
           self.seat,
@@ -66,17 +121,41 @@ impl Cursor {
   }
 }
 
-pub trait CursorEventHandler {
-  fn request_set_cursor(&mut self, event: *const wlr_seat_pointer_request_set_cursor_event);
-  fn motion(&mut self, event: *const wlr_event_pointer_motion);
-  fn motion_absolute(&mut self, event: *const wlr_event_pointer_motion_absolute);
-  fn button(&mut self, event: *const wlr_event_pointer_button);
-  fn axis(&mut self, event: *const wlr_event_pointer_axis);
-  fn frame(&mut self);
+impl InputDeviceManager for CursorManager {
+  fn has_any_input_device(&self) -> bool {
+    self.has_pointer_device()
+  }
+
+  fn add_input_device(&mut self, device: Rc<Device>) {
+    // We don't do anything special with pointers. All of our pointer handling
+    // is proxied through wlr_cursor. On another compositor, you might take this
+    // opportunity to do libinput configuration on the device to set
+    // acceleration, etc.
+    unsafe {
+      wlr_cursor_attach_input_device(self.cursor, device.ptr());
+    }
+
+    self.pointers.push(device);
+  }
+
+  fn destroy_input_device(&mut self, destroyed_pointer: &Device) {
+    self
+      .pointers
+      .retain(|pointer| pointer.deref() != destroyed_pointer);
+  }
 }
 
-impl CursorEventHandler for Cursor {
-  fn request_set_cursor(&mut self, event: *const wlr_seat_pointer_request_set_cursor_event) {
+pub trait CursorEventHandler {
+  fn request_set_cursor(&self, event: *const wlr_seat_pointer_request_set_cursor_event);
+  fn motion(&self, event: *const wlr_event_pointer_motion);
+  fn motion_absolute(&self, event: *const wlr_event_pointer_motion_absolute);
+  fn button(&self, event: *const wlr_event_pointer_button);
+  fn axis(&self, event: *const wlr_event_pointer_axis);
+  fn frame(&self);
+}
+
+impl CursorEventHandler for CursorManager {
+  fn request_set_cursor(&self, event: *const wlr_seat_pointer_request_set_cursor_event) {
     unsafe {
       // This event is rasied by the seat when a client provides a cursor image
       let focused_client = (*self.seat).pointer_state.focused_client;
@@ -97,7 +176,7 @@ impl CursorEventHandler for Cursor {
     }
   }
 
-  fn motion(&mut self, event: *const wlr_event_pointer_motion) {
+  fn motion(&self, event: *const wlr_event_pointer_motion) {
     // This event is forwarded by the cursor when a pointer emits a relative
     // pointer motion event (i.e. a delta)
 
@@ -117,7 +196,7 @@ impl CursorEventHandler for Cursor {
     }
   }
 
-  fn motion_absolute(&mut self, event: *const wlr_event_pointer_motion_absolute) {
+  fn motion_absolute(&self, event: *const wlr_event_pointer_motion_absolute) {
     // This event is forwarded by the cursor when a pointer emits an absolute
     // motion event, from 0..1 on each axis. This happens, for example, when
     // wlroots is running under a Wayland window rather than KMS+DRM, and you
@@ -130,7 +209,7 @@ impl CursorEventHandler for Cursor {
     }
   }
 
-  fn button(&mut self, event: *const wlr_event_pointer_button) {
+  fn button(&self, event: *const wlr_event_pointer_button) {
     unsafe {
       wlr_seat_pointer_notify_button(
         self.seat,
@@ -154,7 +233,7 @@ impl CursorEventHandler for Cursor {
     }
   }
 
-  fn axis(&mut self, event: *const wlr_event_pointer_axis) {
+  fn axis(&self, event: *const wlr_event_pointer_axis) {
     // Notify the client with pointer focus of the axis event.
     unsafe {
       wlr_seat_pointer_notify_axis(
@@ -168,7 +247,7 @@ impl CursorEventHandler for Cursor {
     }
   }
 
-  fn frame(&mut self) {
+  fn frame(&self) {
     // This event is forwarded by the cursor when a pointer emits an frame
     // event. Frame events are sent after regular pointer events to group
     // multiple events together. For instance, two axis events may happen at the
@@ -182,106 +261,136 @@ impl CursorEventHandler for Cursor {
 
 wayland_listener!(
   pub CursorEventManager,
-  Rc<RefCell<Cursor>>,
+  Rc<RefCell<CursorManager>>,
   [
-     request_set_cursor => request_set_cursor_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
-         handler.borrow_mut().request_set_cursor(data as _)
-     };
-     motion => motion_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
-         handler.borrow_mut().motion(data as _)
-     };
-     motion_absolute => motion_absolute_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
-         handler.borrow_mut().motion_absolute(data as _)
-     };
-     button => button_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
-         handler.borrow_mut().button(data as _)
-     };
-     axis => axis_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
-         handler.borrow_mut().axis(data as _)
-     };
-     frame => frame_func: |this: &mut CursorEventManager, _data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
-         handler.borrow_mut().frame()
-     };
+    request_set_cursor => request_set_cursor_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.borrow().request_set_cursor(data as _)
+    };
+    motion => motion_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.borrow().motion(data as _)
+    };
+    motion_absolute => motion_absolute_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.borrow().motion_absolute(data as _)
+    };
+    button => button_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.borrow().button(data as _)
+    };
+    axis => axis_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.borrow().axis(data as _)
+    };
+    frame => frame_func: |this: &mut CursorEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.borrow().frame()
+    };
   ]
 );
 
-#[allow(unused)]
-pub struct CursorManager {
-  cursor: *mut wlr_cursor,
-  cursor_mgr: *mut wlr_xcursor_manager,
-  pointers: Vec<*mut wlr_input_device>,
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::input::seat::SeatEventHandler;
+  use crate::test_util::*;
+  use std::ptr;
+  use std::rc::Rc;
 
-  event_manager: Pin<Box<CursorEventManager>>,
-  event_handler: Rc<RefCell<dyn CursorEventHandler>>,
-}
+  struct KeyboardManager;
 
-impl CursorManager {
-  pub fn init(
-    surface_manager: Rc<RefCell<SurfaceManager>>,
-    output_layout: *mut wlr_output_layout,
-    seat: *mut wlr_seat,
-  ) -> CursorManager {
-    // Creates a cursor, which is a wlroots utility for tracking the cursor
-    // image shown on screen.
-    let cursor = unsafe { wlr_cursor_create() };
-    unsafe { wlr_cursor_attach_output_layout(cursor, output_layout) };
+  impl InputDeviceManager for KeyboardManager {
+    fn has_any_input_device(&self) -> bool {
+      false
+    }
+    fn add_input_device(&mut self, _: Rc<Device>) {
+      // unimplemented!();
+    }
+    fn destroy_input_device(&mut self, _: &Device) {
+      // unimplemented!();
+    }
+  }
 
-    // Creates an xcursor manager, another wlroots utility which loads up
-    // Xcursor themes to source cursor images from and makes sure that cursor
-    // images are available at all scale factors on the screen (necessary for
-    // HiDPI support). We add a cursor theme at scale factor 1 to begin with.
-    let cursor_mgr = unsafe { wlr_xcursor_manager_create(ptr::null(), 24) };
-    unsafe { wlr_xcursor_manager_load(cursor_mgr, 1.0) };
-
-    println!("CursorManager::init prebind");
-
-    let event_handler = Rc::new(RefCell::new(Cursor {
+  #[test]
+  fn it_drops_and_cleans_up_on_destroy() {
+    let surface_manager = Rc::new(RefCell::new(SurfaceManager::init(ptr::null_mut())));
+    let cursor_manager = Rc::new(RefCell::new(CursorManager {
+      seat: ptr::null_mut(),
+      cursor: ptr::null_mut(),
+      cursor_mgr: ptr::null_mut(),
+      pointers: vec![],
       surface_manager,
-      cursor,
-      cursor_mgr,
-      seat,
+
+      event_manager: None,
     }));
 
-    let mut event_manager = CursorEventManager::new(event_handler.clone());
-    unsafe {
-      event_manager.request_set_cursor(&mut (*seat).events.request_set_cursor);
-      event_manager.motion(&mut (*cursor).events.motion);
-      event_manager.motion_absolute(&mut (*cursor).events.motion_absolute);
-      event_manager.button(&mut (*cursor).events.button);
-      event_manager.axis(&mut (*cursor).events.axis);
-      event_manager.frame(&mut (*cursor).events.frame);
-    }
+    let mut raw_pointer = wlr_pointer {
+      impl_: ptr::null(),
+      events: wlr_pointer__bindgen_ty_1 {
+        motion: new_wl_signal(),
+        motion_absolute: new_wl_signal(),
+        button: new_wl_signal(),
+        axis: new_wl_signal(),
+        frame: new_wl_signal(),
+        swipe_begin: new_wl_signal(),
+        swipe_update: new_wl_signal(),
+        swipe_end: new_wl_signal(),
+        pinch_begin: new_wl_signal(),
+        pinch_update: new_wl_signal(),
+        pinch_end: new_wl_signal(),
+      },
+      data: ptr::null_mut(),
+    };
+    let mut device = wlr_input_device {
+      impl_: ptr::null(),
+      type_: wlr_input_device_type_WLR_INPUT_DEVICE_POINTER,
+      vendor: 0,
+      product: 0,
+      name: ptr::null_mut(),
+      width_mm: 0.0,
+      height_mm: 0.0,
+      output_name: ptr::null_mut(),
+      __bindgen_anon_1: wlr_input_device__bindgen_ty_1 {
+        pointer: &mut raw_pointer,
+      },
+      events: wlr_input_device__bindgen_ty_2 {
+        destroy: new_wl_signal(),
+      },
+      data: ptr::null_mut(),
+      link: new_wl_list(),
+    };
 
-    println!("CursorManager::init postbind");
+    let destroy_signal = WlSignal::from_ptr(&mut device.events.destroy);
 
-    CursorManager {
-      cursor,
-      cursor_mgr,
-      pointers: vec![],
+    let seat_event_handler = Rc::new(SeatEventHandler {
+      seat: ptr::null_mut(),
+      cursor_manager: cursor_manager.clone(),
+      keyboard_manager: Rc::new(RefCell::new(KeyboardManager)),
+    });
+    let device = Device::init(seat_event_handler, &mut device);
+    let weak_device = Rc::downgrade(&device);
+    cursor_manager.borrow_mut().add_input_device(device);
+    let pointer = cursor_manager.borrow().pointers.first().unwrap().clone();
 
-      event_manager,
-      event_handler,
-    }
-  }
+    let weak_pointer = Rc::downgrade(&pointer);
+    drop(pointer);
 
-  pub fn has_pointer_device(&self) -> bool {
-    !self.pointers.is_empty()
-  }
+    assert!(weak_device.upgrade().is_some());
+    assert!(weak_pointer.upgrade().is_some());
+    assert!(destroy_signal.listener_count() == 1);
+    assert!(cursor_manager.borrow().has_pointer_device());
+    assert!(cursor_manager.borrow().has_any_input_device());
 
-  pub fn add_pointer_device(&mut self, device: *mut wlr_input_device) {
-    // We don't do anything special with pointers. All of our pointer handling
-    // is proxied through wlr_cursor. On another compositor, you might take this
-    // opportunity to do libinput configuration on the device to set
-    // acceleration, etc.
-    unsafe {
-      wlr_cursor_attach_input_device(self.cursor, device);
-    }
-    self.pointers.push(device);
+    destroy_signal.emit();
+
+    assert!(weak_device.upgrade().is_none());
+    assert!(weak_pointer.upgrade().is_none());
+    assert!(destroy_signal.listener_count() == 0);
+    assert!(!cursor_manager.borrow().has_pointer_device());
+    assert!(!cursor_manager.borrow().has_any_input_device());
   }
 }
+
+#[cfg(test)]
+unsafe fn wlr_cursor_attach_input_device(_: *mut wlr_cursor, _: *mut wlr_input_device) {}
