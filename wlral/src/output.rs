@@ -1,5 +1,6 @@
-use crate::geometry::{Displacement, Point, Rectangle, TransformMatrix};
+use crate::geometry::{Displacement, Point, Rectangle, Size, TransformMatrix};
 use crate::surface::*;
+use crate::window_management_policy::{WindowManagementPolicy, WmManager};
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::ptr;
@@ -8,9 +9,10 @@ use std::time::Instant;
 use wlroots_sys::*;
 
 pub struct Output {
-  renderer: *mut wlr_renderer,
+  wm_manager: Rc<RefCell<WmManager>>,
   surface_manager: Rc<RefCell<SurfaceManager>>,
   output_manager: Rc<RefCell<OutputManager>>,
+  renderer: *mut wlr_renderer,
   output_layout: *mut wlr_output_layout,
   output: *mut wlr_output,
   created_at: Instant,
@@ -36,14 +38,30 @@ impl Output {
   }
 
   pub fn top_left(&self) -> Point {
+    let mut x = 0.0;
+    let mut y = 0.0;
     unsafe {
-      let mut x = 0.0;
-      let mut y = 0.0;
       wlr_output_layout_output_coords(self.output_layout, self.output, &mut x, &mut y);
-      Point {
-        x: x as i32,
-        y: y as i32,
+    }
+    Point {
+      x: x as i32,
+      y: y as i32,
+    }
+  }
+
+  pub fn size(&self) -> Size {
+    unsafe {
+      Size {
+        width: (*self.output).width,
+        height: (*self.output).height,
       }
+    }
+  }
+
+  pub fn extents(&self) -> Rectangle {
+    Rectangle {
+      top_left: self.top_left(),
+      size: self.size(),
     }
   }
 
@@ -55,7 +73,7 @@ impl Output {
     unsafe { TransformMatrix((*self.output).transform_matrix) }
   }
 
-  pub fn render_surface(&self, frame_time: &timespec, surface: Rc<Surface>) {
+  pub(crate) fn render_surface(&self, frame_time: &timespec, surface: Rc<Surface>) {
     unsafe {
       let wlr_surface = &mut *surface.surface();
 
@@ -122,7 +140,14 @@ impl Output {
       wlr_surface_send_frame_done(wlr_surface, frame_time);
     }
   }
+}
 
+trait OutputEventHandler {
+  fn frame(&self);
+  fn destroy(self);
+}
+
+impl OutputEventHandler for Rc<Output> {
   fn frame(&self) {
     unsafe {
       // wlr_output_attach_render makes the OpenGL context current.
@@ -165,8 +190,12 @@ impl Output {
     }
   }
 
-  fn destroy(&self) {
-    println!("dfestroy output");
+  fn destroy(self) {
+    println!("destroy output");
+    self
+      .wm_manager
+      .borrow_mut()
+      .advise_output_delete(self.clone());
     self.output_manager.borrow_mut().destroy_output(&self)
   }
 }
@@ -211,15 +240,17 @@ wayland_listener!(
   [
     new_output => new_output_func: |this: &mut OutputManagerEventManager, data: *mut libc::c_void,| unsafe {
       let ref mut manager = this.data;
-      let renderer = manager.borrow().renderer;
+      let wm_manager = manager.borrow().wm_manager.clone();
       let surface_manager = manager.borrow().surface_manager.clone();
       let output_manager = manager.clone();
+      let renderer = manager.borrow().renderer;
       let output_layout = manager.borrow().output_layout;
       manager.borrow_mut().new_output(
         Output {
-          renderer,
+          wm_manager,
           surface_manager,
           output_manager,
+          renderer,
           output_layout,
           output: data as *mut wlr_output,
           created_at: Instant::now(),
@@ -232,8 +263,9 @@ wayland_listener!(
 
 #[allow(unused)]
 pub struct OutputManager {
-  renderer: *mut wlr_renderer,
+  wm_manager: Rc<RefCell<WmManager>>,
   surface_manager: Rc<RefCell<SurfaceManager>>,
+  renderer: *mut wlr_renderer,
   output_layout: *mut wlr_output_layout,
   outputs: Vec<Rc<Output>>,
 
@@ -241,15 +273,17 @@ pub struct OutputManager {
 }
 
 impl OutputManager {
-  pub fn init(
+  pub(crate) fn init(
+    wm_manager: Rc<RefCell<WmManager>>,
+    surface_manager: Rc<RefCell<SurfaceManager>>,
     backend: *mut wlr_backend,
     renderer: *mut wlr_renderer,
-    surface_manager: Rc<RefCell<SurfaceManager>>,
     output_layout: *mut wlr_output_layout,
   ) -> Rc<RefCell<OutputManager>> {
     let output_manager = Rc::new(RefCell::new(OutputManager {
-      renderer,
+      wm_manager,
       surface_manager,
+      renderer,
       output_layout,
       outputs: vec![],
 
@@ -296,10 +330,14 @@ impl OutputManager {
     self.outputs.push(output);
   }
 
-  pub fn destroy_output(&mut self, destroyed_output: &Output) {
+  fn destroy_output(&mut self, destroyed_output: &Output) {
     self
       .outputs
       .retain(|output| output.output != destroyed_output.output);
+  }
+
+  pub fn outputs(&self) -> &Vec<Rc<Output>> {
+    &self.outputs
   }
 }
 
@@ -311,19 +349,22 @@ mod tests {
 
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
+    let wm_manager = Rc::new(RefCell::new(WmManager::new()));
     let surface_manager = Rc::new(RefCell::new(SurfaceManager::init(ptr::null_mut())));
     let output_manager = Rc::new(RefCell::new(OutputManager {
-      renderer: ptr::null_mut(),
+      wm_manager: wm_manager.clone(),
       surface_manager: surface_manager.clone(),
+      renderer: ptr::null_mut(),
       output_layout: ptr::null_mut(),
       outputs: vec![],
 
       event_manager: None,
     }));
     let output = Rc::new(Output {
-      renderer: ptr::null_mut(),
-      surface_manager: surface_manager.clone(),
+      wm_manager,
+      surface_manager,
       output_manager: output_manager.clone(),
+      renderer: ptr::null_mut(),
       output_layout: ptr::null_mut(),
       output: ptr::null_mut(),
       created_at: Instant::now(),

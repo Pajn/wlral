@@ -6,6 +6,7 @@ use crate::output::*;
 use crate::shell::xdg::*;
 use crate::shell::xwayland::*;
 use crate::surface::*;
+use crate::window_management_policy::{WindowManagementPolicy, WmManager};
 use std::cell::RefCell;
 use std::env;
 use std::ffi::{CStr, CString};
@@ -31,11 +32,14 @@ pub struct Compositor {
   cursor_manager: Rc<RefCell<CursorManager>>,
   keyboard_manager: Rc<RefCell<KeyboardManager>>,
 
+  wm_manager: Rc<RefCell<WmManager>>,
   event_filter_manager: Rc<RefCell<EventFilterManager>>,
 }
 
 impl Compositor {
   pub fn init() -> Result<Compositor, u32> {
+    let wm_manager = Rc::new(RefCell::new(WmManager::new()));
+
     unsafe {
       // The Wayland display is managed by libwayland. It handles accepting
       // clients from the Unix socket, manging Wayland globals, and so on.
@@ -75,11 +79,21 @@ impl Compositor {
       // arrangement of screens in a physical layout.
       let output_layout = wlr_output_layout_create();
 
-      let output_manager =
-        OutputManager::init(backend, renderer, surface_manager.clone(), output_layout);
+      let output_manager = OutputManager::init(
+        wm_manager.clone(),
+        surface_manager.clone(),
+        backend,
+        renderer,
+        output_layout,
+      );
 
-      let xdg_manager = XdgManager::init(display, surface_manager.clone());
-      let xwayland_manager = XwaylandManager::init(display, compositor, surface_manager.clone());
+      let xdg_manager = XdgManager::init(wm_manager.clone(), surface_manager.clone(), display);
+      let xwayland_manager = XwaylandManager::init(
+        wm_manager.clone(),
+        surface_manager.clone(),
+        display,
+        compositor,
+      );
 
       let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
       let cursor_manager = CursorManager::init(
@@ -140,9 +154,14 @@ impl Compositor {
         cursor_manager,
         keyboard_manager,
 
+        wm_manager,
         event_filter_manager,
       })
     }
+  }
+
+  pub fn output_manager(&self) -> Rc<RefCell<OutputManager>> {
+    self.output_manager.clone()
   }
 
   pub fn add_event_filter(&mut self, filter: Box<dyn EventFilter>) {
@@ -152,7 +171,15 @@ impl Compositor {
       .add_event_filter(filter)
   }
 
-  pub fn run(self) {
+  pub fn run<T>(self, window_management_policy: T)
+  where
+    T: 'static + WindowManagementPolicy,
+  {
+    self
+      .wm_manager
+      .borrow_mut()
+      .set_policy(window_management_policy);
+
     unsafe {
       // if (startup_cmd) {
       //   if (fork() == 0) {

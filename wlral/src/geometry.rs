@@ -1,4 +1,4 @@
-use std::ops::{Add, Mul, Sub};
+use std::ops::{Add, Div, Mul, Sub};
 use wlroots_sys::wlr_box;
 
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
@@ -93,6 +93,13 @@ impl Size {
       height,
     }
   }
+
+  pub fn as_displacement(&self) -> Displacement {
+    TDisplacement {
+      dx: self.width,
+      dy: self.height,
+    }
+  }
 }
 
 impl Add<Size> for Size {
@@ -124,6 +131,17 @@ impl Mul<f32> for Size {
     Size {
       width: ((self.width as f32) * other) as i32,
       height: ((self.height as f32) * other) as i32,
+    }
+  }
+}
+
+impl Div<f32> for Size {
+  type Output = Size;
+
+  fn div(self, other: f32) -> Size {
+    Size {
+      width: ((self.width as f32) / other) as i32,
+      height: ((self.height as f32) / other) as i32,
     }
   }
 }
@@ -184,6 +202,15 @@ impl Rectangle {
       && self.right() > point.x
       && self.top() <= point.y
       && self.bottom() > point.y
+  }
+
+  pub fn overlaps(&self, rectangle: &Rectangle) -> bool {
+    let disjoint = self.left() <= rectangle.right()
+      || self.right() >= rectangle.left()
+      || self.top() <= rectangle.bottom()
+      || self.bottom() >= rectangle.top();
+
+    !disjoint
   }
 }
 
@@ -250,6 +277,34 @@ impl From<FDisplacement> for Displacement {
     Displacement {
       dx: point.dx as i32,
       dy: point.dy as i32,
+    }
+  }
+}
+
+impl<T: Copy> Add<TDisplacement<T>> for TDisplacement<T>
+where
+  T: Add<T, Output = T>,
+{
+  type Output = TDisplacement<T>;
+
+  fn add(self, other: TDisplacement<T>) -> Self::Output {
+    TDisplacement {
+      dx: self.dx + other.dx,
+      dy: self.dy + other.dy,
+    }
+  }
+}
+
+impl<T: Copy> Sub<TDisplacement<T>> for TDisplacement<T>
+where
+  T: Sub<T, Output = T>,
+{
+  type Output = TDisplacement<T>;
+
+  fn sub(self, other: TDisplacement<T>) -> Self::Output {
+    TDisplacement {
+      dx: self.dx - other.dx,
+      dy: self.dy - other.dy,
     }
   }
 }

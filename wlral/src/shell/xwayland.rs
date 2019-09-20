@@ -1,4 +1,5 @@
 use crate::surface::*;
+use crate::window_management_policy::{WindowManagementPolicy, WmManager};
 use std::cell::RefCell;
 use std::env;
 use std::ffi::CStr;
@@ -8,6 +9,7 @@ use wayland_sys::server::wl_display;
 use wlroots_sys::*;
 
 pub struct XwaylandEventHandler {
+  wm_manager: Rc<RefCell<WmManager>>,
   surface_manager: Rc<RefCell<SurfaceManager>>,
 }
 impl XwaylandEventHandler {
@@ -17,11 +19,19 @@ impl XwaylandEventHandler {
       .surface_manager
       .borrow_mut()
       .new_surface(SurfaceType::Xwayland(xwayland_surface));
-    surface.bind_events(self.surface_manager.clone(), |event_manager| unsafe {
-      event_manager.map(&mut (*xwayland_surface).events.map);
-      event_manager.unmap(&mut (*xwayland_surface).events.unmap);
-      event_manager.destroy(&mut (*xwayland_surface).events.destroy);
-    })
+    surface.bind_events(
+      self.wm_manager.clone(),
+      self.surface_manager.clone(),
+      |event_manager| unsafe {
+        event_manager.map(&mut (*xwayland_surface).events.map);
+        event_manager.unmap(&mut (*xwayland_surface).events.unmap);
+        event_manager.destroy(&mut (*xwayland_surface).events.destroy);
+      },
+    );
+    self
+      .wm_manager
+      .borrow_mut()
+      .advise_new_window(surface.clone());
   }
 }
 
@@ -45,10 +55,11 @@ pub struct XwaylandManager {
 }
 
 impl XwaylandManager {
-  pub fn init(
+  pub(crate) fn init(
+    wm_manager: Rc<RefCell<WmManager>>,
+    surface_manager: Rc<RefCell<SurfaceManager>>,
     display: *mut wl_display,
     compositor: *mut wlr_compositor,
-    surface_manager: Rc<RefCell<SurfaceManager>>,
   ) -> XwaylandManager {
     println!("XwaylandManager::init prebind");
 
@@ -63,7 +74,8 @@ impl XwaylandManager {
     println!("{}", socket_name.clone());
 
     let event_handler = Rc::new(RefCell::new(XwaylandEventHandler {
-      surface_manager: surface_manager.clone(),
+      wm_manager,
+      surface_manager,
     }));
 
     let mut event_manager = XwaylandEventManager::new(event_handler.clone());

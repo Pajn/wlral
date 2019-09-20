@@ -1,4 +1,5 @@
 use crate::surface::*;
+use crate::window_management_policy::{WindowManagementPolicy, WmManager};
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -6,6 +7,7 @@ use wayland_sys::server::wl_display;
 use wlroots_sys::*;
 
 pub struct XdgEventHandler {
+  wm_manager: Rc<RefCell<WmManager>>,
   surface_manager: Rc<RefCell<SurfaceManager>>,
 }
 impl XdgEventHandler {
@@ -15,11 +17,19 @@ impl XdgEventHandler {
       .surface_manager
       .borrow_mut()
       .new_surface(SurfaceType::Xdg(xdg_surface));
-    surface.bind_events(self.surface_manager.clone(), |event_manager| unsafe {
-      event_manager.map(&mut (*xdg_surface).events.map);
-      event_manager.unmap(&mut (*xdg_surface).events.unmap);
-      event_manager.destroy(&mut (*xdg_surface).events.destroy);
-    })
+    surface.bind_events(
+      self.wm_manager.clone(),
+      self.surface_manager.clone(),
+      |event_manager| unsafe {
+        event_manager.map(&mut (*xdg_surface).events.map);
+        event_manager.unmap(&mut (*xdg_surface).events.unmap);
+        event_manager.destroy(&mut (*xdg_surface).events.destroy);
+      },
+    );
+    self
+      .wm_manager
+      .borrow_mut()
+      .advise_new_window(surface.clone());
   }
 }
 
@@ -43,16 +53,18 @@ pub struct XdgManager {
 }
 
 impl XdgManager {
-  pub fn init(
-    display: *mut wl_display,
+  pub(crate) fn init(
+    wm_manager: Rc<RefCell<WmManager>>,
     surface_manager: Rc<RefCell<SurfaceManager>>,
+    display: *mut wl_display,
   ) -> XdgManager {
     println!("XdgManager::init prebind");
 
     let xdg_shell = unsafe { wlr_xdg_shell_create(display) };
 
     let event_handler = Rc::new(RefCell::new(XdgEventHandler {
-      surface_manager: surface_manager.clone(),
+      wm_manager,
+      surface_manager,
     }));
 
     let mut event_manager = XdgEventManager::new(event_handler.clone());

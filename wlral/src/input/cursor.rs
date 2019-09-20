@@ -32,8 +32,6 @@ impl CursorManager {
     output_layout: *mut wlr_output_layout,
     seat: *mut wlr_seat,
   ) -> Rc<RefCell<CursorManager>> {
-    // Creates a cursor, which is a wlroots utility for tracking the cursor
-    // image shown on screen.
     let cursor = unsafe { wlr_cursor_create() };
     unsafe { wlr_cursor_attach_output_layout(cursor, output_layout) };
 

@@ -1,4 +1,5 @@
 use crate::geometry::{Displacement, Point, Rectangle, Size};
+use crate::window_management_policy::{WindowManagementPolicy, WmManager};
 use std::cell::RefCell;
 use std::cmp::PartialEq;
 use std::pin::Pin;
@@ -15,6 +16,7 @@ use SurfaceType::*;
 pub struct Surface {
   surface_type: SurfaceType,
   mapped: RefCell<bool>,
+  top_left: RefCell<Point>,
 
   event_manager: RefCell<Option<Pin<Box<SurfaceEventManager>>>>,
 }
@@ -29,23 +31,26 @@ impl Surface {
     }
   }
 
-  fn parent_offset(&self) -> Displacement {
+  fn top_left(&self) -> Displacement {
     match self.surface_type {
       Xdg(xdg_surface) => unsafe {
         if (*xdg_surface).role == wlr_xdg_surface_role_WLR_XDG_SURFACE_ROLE_POPUP {
           let popup = &*(*xdg_surface).__bindgen_anon_1.popup;
           let parent = wlr_xdg_surface_from_wlr_surface(popup.parent);
           let mut parent_geo = Rectangle::ZERO.into();
+
           wlr_xdg_surface_get_geometry(parent, &mut parent_geo);
-          Displacement {
-            dx: parent_geo.x + popup.geometry.x,
-            dy: parent_geo.y + popup.geometry.y,
-          }
+
+          self.top_left.borrow().as_displacement()
+            + Displacement {
+              dx: parent_geo.x + popup.geometry.x,
+              dy: parent_geo.y + popup.geometry.y,
+            }
         } else {
-          Displacement::ZERO
+          self.top_left.borrow().as_displacement()
         }
       },
-      Xwayland(_) => Displacement::ZERO,
+      Xwayland(_) => self.top_left.borrow().as_displacement(),
     }
   }
 
@@ -55,7 +60,7 @@ impl Surface {
         Xdg(xdg_surface) => {
           let mut wlr_box = Rectangle::ZERO.into();
           wlr_xdg_surface_get_geometry(xdg_surface, &mut wlr_box);
-          Rectangle::from(wlr_box) + self.parent_offset()
+          Rectangle::from(wlr_box) + self.top_left()
         }
         Xwayland(xwayland_surface) => Rectangle {
           top_left: Point {
@@ -78,7 +83,7 @@ impl Surface {
         x: surface.current.dx,
         y: surface.current.dy,
       };
-      top_left + self.parent_offset()
+      top_left + self.top_left()
     }
   }
 
@@ -90,6 +95,10 @@ impl Surface {
         height: surface.current.height,
       }
     }
+  }
+
+  pub fn move_to(&self, top_left: Point) {
+    *self.top_left.borrow_mut() = top_left;
   }
 
   pub fn is_inside(&self, point: &Point) -> bool {
@@ -117,20 +126,29 @@ impl PartialEq for Surface {
   }
 }
 
-pub trait SurfaceEvents {
-  fn bind_events<F>(&self, surface_manager: Rc<RefCell<SurfaceManager>>, f: F)
-  where
+pub(crate) trait SurfaceEvents {
+  fn bind_events<F>(
+    &self,
+    wm_manager: Rc<RefCell<WmManager>>,
+    surface_manager: Rc<RefCell<SurfaceManager>>,
+    f: F,
+  ) where
     F: Fn(&mut SurfaceEventManager) -> ();
 }
 
 impl SurfaceEvents for Rc<Surface> {
-  fn bind_events<F>(&self, surface_manager: Rc<RefCell<SurfaceManager>>, f: F)
-  where
+  fn bind_events<F>(
+    &self,
+    wm_manager: Rc<RefCell<WmManager>>,
+    surface_manager: Rc<RefCell<SurfaceManager>>,
+    f: F,
+  ) where
     F: Fn(&mut SurfaceEventManager) -> (),
   {
     let event_handler = SurfaceEventHandler {
+      wm_manager,
+      surface_manager,
       surface: Rc::downgrade(self),
-      surface_manager: surface_manager.clone(),
     };
     let mut event_manager = SurfaceEventManager::new(event_handler);
     f(&mut event_manager);
@@ -139,13 +157,18 @@ impl SurfaceEvents for Rc<Surface> {
 }
 
 pub struct SurfaceEventHandler {
-  surface: Weak<Surface>,
+  wm_manager: Rc<RefCell<WmManager>>,
   surface_manager: Rc<RefCell<SurfaceManager>>,
+  surface: Weak<Surface>,
 }
 
 impl SurfaceEventHandler {
   fn map(&mut self) {
     if let Some(surface) = self.surface.upgrade() {
+      self
+        .wm_manager
+        .borrow_mut()
+        .handle_window_ready(surface.clone());
       *surface.mapped.borrow_mut() = true;
     }
   }
@@ -158,6 +181,10 @@ impl SurfaceEventHandler {
 
   fn destroy(&mut self) {
     if let Some(surface) = self.surface.upgrade() {
+      self
+        .wm_manager
+        .borrow_mut()
+        .advise_delete_window(surface.clone());
       self
         .surface_manager
         .borrow_mut()
@@ -220,6 +247,7 @@ impl SurfaceManager {
     let surface = Rc::new(Surface {
       surface_type,
       mapped: RefCell::new(false),
+      top_left: RefCell::new(Point::ZERO),
       event_manager: RefCell::new(None),
     });
     self.surfaces.push(surface.clone());
@@ -299,6 +327,7 @@ mod tests {
 
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
+    let wm_manager = Rc::new(RefCell::new(WmManager::new()));
     let surface_manager = Rc::new(RefCell::new(SurfaceManager::init(ptr::null_mut())));
     let surface = surface_manager
       .borrow_mut()
@@ -308,11 +337,15 @@ mod tests {
     let unmap_signal = WlSignal::new();
     let destroy_signal = WlSignal::new();
 
-    surface.bind_events(surface_manager.clone(), |event_manager| unsafe {
-      event_manager.map(map_signal.ptr());
-      event_manager.unmap(unmap_signal.ptr());
-      event_manager.destroy(destroy_signal.ptr());
-    });
+    surface.bind_events(
+      wm_manager,
+      surface_manager.clone(),
+      |event_manager| unsafe {
+        event_manager.map(map_signal.ptr());
+        event_manager.unmap(unmap_signal.ptr());
+        event_manager.destroy(destroy_signal.ptr());
+      },
+    );
 
     let weak_surface = Rc::downgrade(&surface);
     drop(surface);
