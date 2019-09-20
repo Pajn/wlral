@@ -9,6 +9,7 @@ pub mod input;
 pub mod output;
 pub mod shell;
 pub mod surface;
+pub mod window_management_policy;
 
 #[cfg(test)]
 pub mod test_util {

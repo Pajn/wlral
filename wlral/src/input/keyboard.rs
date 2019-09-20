@@ -1,3 +1,4 @@
+use crate::input::event_filter::{EventFilter, EventFilterManager};
 use crate::input::events::{InputEvent, KeyboardEvent};
 use crate::input::seat::{Device, DeviceType, InputDeviceManager};
 use std::cell::RefCell;
@@ -8,6 +9,7 @@ use wlroots_sys::*;
 use xkbcommon::xkb;
 
 pub struct Keyboard {
+  event_filter_manager: Rc<RefCell<EventFilterManager>>,
   seat: *mut wlr_seat,
   device: Rc<Device>,
   keyboard: *mut wlr_keyboard,
@@ -18,12 +20,17 @@ pub struct Keyboard {
 }
 
 impl Keyboard {
-  fn init(seat: *mut wlr_seat, device: Rc<Device>) -> Rc<Keyboard> {
+  fn init(
+    event_filter_manager: Rc<RefCell<EventFilterManager>>,
+    seat: *mut wlr_seat,
+    device: Rc<Device>,
+  ) -> Rc<Keyboard> {
     let keyboard_ptr = match device.device_type() {
       DeviceType::Keyboard(keyboard_ptr) => keyboard_ptr,
       _ => panic!("Keyboard::init expects a keyboard device"),
     };
     let keyboard = Rc::new(Keyboard {
+      event_filter_manager,
       seat,
       device,
       keyboard: keyboard_ptr,
@@ -94,7 +101,10 @@ impl KeyboardEventHandler for Keyboard {
   fn key(&self, event: *const wlr_event_keyboard_key) {
     let event = unsafe { KeyboardEvent::from_ptr(self, event) };
 
-    let handled = false;
+    let handled = self
+      .event_filter_manager
+      .borrow_mut()
+      .handle_keyboard_event(&event);
 
     if !handled {
       unsafe {
@@ -129,13 +139,18 @@ wayland_listener!(
 );
 
 pub struct KeyboardManager {
+  event_filter_manager: Rc<RefCell<EventFilterManager>>,
   seat: *mut wlr_seat,
   keyboards: Vec<Rc<Keyboard>>,
 }
 
 impl KeyboardManager {
-  pub fn init(seat: *mut wlr_seat) -> KeyboardManager {
+  pub(crate) fn init(
+    event_filter_manager: Rc<RefCell<EventFilterManager>>,
+    seat: *mut wlr_seat,
+  ) -> KeyboardManager {
     KeyboardManager {
+      event_filter_manager,
       seat,
       keyboards: vec![],
     }
@@ -152,7 +167,7 @@ impl InputDeviceManager for KeyboardManager {
   }
 
   fn add_input_device(&mut self, device: Rc<Device>) {
-    let keyboard = Keyboard::init(self.seat, device);
+    let keyboard = Keyboard::init(self.event_filter_manager.clone(), self.seat, device);
     self.keyboards.push(keyboard);
   }
 
@@ -187,7 +202,11 @@ mod tests {
 
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
-    let keyboard_manager = Rc::new(RefCell::new(KeyboardManager::init(ptr::null_mut())));
+    let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
+    let keyboard_manager = Rc::new(RefCell::new(KeyboardManager::init(
+      event_filter_manager,
+      ptr::null_mut(),
+    )));
 
     let mut raw_keyboard = wlr_keyboard {
       impl_: ptr::null(),

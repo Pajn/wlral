@@ -176,7 +176,7 @@ wayland_listener!(
 );
 
 #[allow(unused)]
-pub struct SeatManager {
+pub(crate) struct SeatManager {
   seat: *mut wlr_seat,
 
   event_manager: Pin<Box<SeatEventManager>>,
@@ -184,7 +184,7 @@ pub struct SeatManager {
 }
 
 impl SeatManager {
-  pub fn init(
+  pub(crate) fn init(
     backend: *mut wlr_backend,
     seat: *mut wlr_seat,
     cursor_manager: Rc<RefCell<CursorManager>>,

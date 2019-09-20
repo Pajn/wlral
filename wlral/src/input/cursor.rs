@@ -1,4 +1,5 @@
 use crate::geometry::FPoint;
+use crate::input::event_filter::{EventFilter, EventFilterManager};
 use crate::input::events::{
   AbsoluteMotionEvent, AxisEvent, ButtonEvent, InputEvent, MotionEvent, RelativeMotionEvent,
 };
@@ -14,18 +15,20 @@ use wlroots_sys::*;
 
 #[allow(unused)]
 pub struct CursorManager {
+  surface_manager: Rc<RefCell<SurfaceManager>>,
+  event_filter_manager: Rc<RefCell<EventFilterManager>>,
   seat: *mut wlr_seat,
   cursor: *mut wlr_cursor,
   cursor_mgr: *mut wlr_xcursor_manager,
   pointers: Vec<Rc<Device>>,
-  surface_manager: Rc<RefCell<SurfaceManager>>,
 
   event_manager: Option<Pin<Box<CursorEventManager>>>,
 }
 
 impl CursorManager {
-  pub fn init(
+  pub(crate) fn init(
     surface_manager: Rc<RefCell<SurfaceManager>>,
+    event_filter_manager: Rc<RefCell<EventFilterManager>>,
     output_layout: *mut wlr_output_layout,
     seat: *mut wlr_seat,
   ) -> Rc<RefCell<CursorManager>> {
@@ -42,11 +45,12 @@ impl CursorManager {
     unsafe { wlr_xcursor_manager_load(cursor_mgr, 1.0) };
 
     let cursor_manager = Rc::new(RefCell::new(CursorManager {
+      event_filter_manager,
+      surface_manager,
       seat,
       cursor,
       cursor_mgr,
       pointers: vec![],
-      surface_manager,
 
       event_manager: None,
     }));
@@ -83,21 +87,21 @@ impl CursorManager {
   }
 
   fn process_motion(&self, event: MotionEvent) {
-    // TODO: let window manager handle motion
-    unsafe {
-      let position = self.position();
-      let surface = self.surface_manager.borrow().surface_at(&position.into());
+    let position = self.position();
+    let surface = self.surface_manager.borrow().surface_at(&position.into());
 
-      if let Some(surface) = surface {
-        let focus_changed = (*self.seat).pointer_state.focused_surface != surface.surface();
-        let surface_position = position - FPoint::from(surface.buffer_top_left()).as_displacement();
+    if let Some(surface) = surface {
+      let focus_changed =
+        unsafe { (*self.seat).pointer_state.focused_surface != surface.surface() };
+      let surface_position = position - FPoint::from(surface.buffer_top_left()).as_displacement();
 
-        // "Enter" the surface if necessary. This lets the client know that the
-        // cursor has entered one of its surfaces.
-        //
-        // Note that this gives the surface "pointer focus", which is distinct
-        // from cursor focus. You get pointer focus by moving the pointer over
-        // a window.
+      // "Enter" the surface if necessary. This lets the client know that the
+      // cursor has entered one of its surfaces.
+      //
+      // Note that this gives the surface "pointer focus", which is distinct
+      // from cursor focus. You get pointer focus by moving the pointer over
+      // a window.
+      unsafe {
         wlr_seat_pointer_notify_enter(
           self.seat,
           surface.surface(),
@@ -114,7 +118,9 @@ impl CursorManager {
             surface_position.y,
           );
         }
-      } else {
+      }
+    } else {
+      unsafe {
         // If there's no surface under the cursor, set the cursor image to a
         // default. This is what makes the cursor image appear when you move it
         // around the screen, not over any surfaces.
@@ -126,6 +132,11 @@ impl CursorManager {
         wlr_seat_pointer_clear_focus(self.seat);
       }
     }
+
+    self
+      .event_filter_manager
+      .borrow_mut()
+      .handle_pointer_motion_event(&event);
   }
 }
 
@@ -226,7 +237,10 @@ impl CursorEventHandler for CursorManager {
   fn button(&self, event: *const wlr_event_pointer_button) {
     let event = unsafe { ButtonEvent::from_ptr(event) };
 
-    let handled = false;
+    let handled = self
+      .event_filter_manager
+      .borrow_mut()
+      .handle_pointer_button_event(&event);
 
     if !handled {
       if event.state() == wlr_button_state_WLR_BUTTON_PRESSED {
@@ -249,7 +263,10 @@ impl CursorEventHandler for CursorManager {
   fn axis(&self, event: *const wlr_event_pointer_axis) {
     let event = unsafe { AxisEvent::from_ptr(event) };
 
-    let handled = false;
+    let handled = self
+      .event_filter_manager
+      .borrow_mut()
+      .handle_pointer_axis_event(&event);
 
     if !handled {
       unsafe {
@@ -333,12 +350,14 @@ mod tests {
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
     let surface_manager = Rc::new(RefCell::new(SurfaceManager::init(ptr::null_mut())));
+    let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
     let cursor_manager = Rc::new(RefCell::new(CursorManager {
+      surface_manager,
+      event_filter_manager,
       seat: ptr::null_mut(),
       cursor: ptr::null_mut(),
       cursor_mgr: ptr::null_mut(),
       pointers: vec![],
-      surface_manager,
 
       event_manager: None,
     }));

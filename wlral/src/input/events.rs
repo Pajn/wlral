@@ -243,6 +243,22 @@ impl<'a> KeyboardEvent<'a> {
   pub fn state(&self) -> xkb::StateComponent {
     unsafe { (*self.event).state }
   }
+
+  /// Get the single keysym obtained from pressing a particular key in
+  /// a given keyboard state.
+  ///
+  /// This function is similar to xkb_state_key_get_syms(), but intended
+  /// for users which cannot or do not want to handle the case where
+  /// multiple keysyms are returned (in which case this function is preferred).
+  ///
+  /// Returns the keysym. If the key does not have exactly one keysym,
+  /// returns xkb::KEY_NoSymbol
+  pub fn get_one_sym(&self) -> xkb::Keysym {
+    self
+      .keyboard
+      .xkb_state()
+      .key_get_one_sym(self.xkb_keycode())
+  }
 }
 
 impl<'a> InputEvent for KeyboardEvent<'a> {

@@ -1,4 +1,5 @@
 use crate::input::cursor::*;
+use crate::input::event_filter::*;
 use crate::input::keyboard::*;
 use crate::input::seat::*;
 use crate::output::*;
@@ -29,6 +30,8 @@ pub struct Compositor {
   seat_manager: SeatManager,
   cursor_manager: Rc<RefCell<CursorManager>>,
   keyboard_manager: Rc<RefCell<KeyboardManager>>,
+
+  event_filter_manager: Rc<RefCell<EventFilterManager>>,
 }
 
 impl Compositor {
@@ -78,14 +81,27 @@ impl Compositor {
       let xdg_manager = XdgManager::init(display, surface_manager.clone());
       let xwayland_manager = XwaylandManager::init(display, compositor, surface_manager.clone());
 
-      let cursor_manager = CursorManager::init(surface_manager.clone(), output_layout, seat);
-      let keyboard_manager = Rc::new(RefCell::new(KeyboardManager::init(seat)));
+      let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
+      let cursor_manager = CursorManager::init(
+        surface_manager.clone(),
+        event_filter_manager.clone(),
+        output_layout,
+        seat,
+      );
+      let keyboard_manager = Rc::new(RefCell::new(KeyboardManager::init(
+        event_filter_manager.clone(),
+        seat,
+      )));
       let seat_manager = SeatManager::init(
         backend,
         seat,
         cursor_manager.clone(),
         keyboard_manager.clone(),
       );
+
+      // event_filter_manager
+      //   .borrow_mut()
+      //   .add_event_filter(Box::new(VtSwitchEventFilter::new(backend)));
 
       // Add a Unix socket to the Wayland display.
       let socket = ffi_dispatch!(WAYLAND_SERVER_HANDLE, wl_display_add_socket_auto, display);
@@ -123,8 +139,17 @@ impl Compositor {
         seat_manager,
         cursor_manager,
         keyboard_manager,
+
+        event_filter_manager,
       })
     }
+  }
+
+  pub fn add_event_filter(&mut self, filter: Box<dyn EventFilter>) {
+    self
+      .event_filter_manager
+      .borrow_mut()
+      .add_event_filter(filter)
   }
 
   pub fn run(self) {
