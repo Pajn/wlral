@@ -1,4 +1,7 @@
 use crate::geometry::FPoint;
+use crate::input::events::{
+  AbsoluteMotionEvent, AxisEvent, ButtonEvent, InputEvent, MotionEvent, RelativeMotionEvent,
+};
 use crate::input::seat::{Device, InputDeviceManager};
 use crate::surface::SurfaceManager;
 use std::cell::RefCell;
@@ -79,7 +82,7 @@ impl CursorManager {
     }
   }
 
-  fn process_motion(&self, time: u32) {
+  fn process_motion(&self, event: MotionEvent) {
     // TODO: let window manager handle motion
     unsafe {
       let position = self.position();
@@ -87,8 +90,8 @@ impl CursorManager {
 
       if let Some(surface) = surface {
         let focus_changed = (*self.seat).pointer_state.focused_surface != surface.surface();
-        let surface_position =
-          position - FPoint::from(surface.extents().top_left()).as_displacement();
+        let surface_position = position - FPoint::from(surface.buffer_top_left()).as_displacement();
+
         // "Enter" the surface if necessary. This lets the client know that the
         // cursor has entered one of its surfaces.
         //
@@ -104,7 +107,12 @@ impl CursorManager {
         if !focus_changed {
           // The enter event contains coordinates, so we only need to notify
           // on motion if the focus did not change.
-          wlr_seat_pointer_notify_motion(self.seat, time, position.x, position.y);
+          wlr_seat_pointer_notify_motion(
+            self.seat,
+            event.time_msec(),
+            surface_position.x,
+            surface_position.y,
+          );
         }
       } else {
         // If there's no surface under the cursor, set the cursor image to a
@@ -132,7 +140,7 @@ impl InputDeviceManager for CursorManager {
     // opportunity to do libinput configuration on the device to set
     // acceleration, etc.
     unsafe {
-      wlr_cursor_attach_input_device(self.cursor, device.ptr());
+      wlr_cursor_attach_input_device(self.cursor, device.raw_ptr());
     }
 
     self.pointers.push(device);
@@ -176,51 +184,52 @@ impl CursorEventHandler for CursorManager {
     }
   }
 
-  fn motion(&self, event: *const wlr_event_pointer_motion) {
-    // This event is forwarded by the cursor when a pointer emits a relative
-    // pointer motion event (i.e. a delta)
+  // This event is forwarded by the cursor when a pointer emits a relative
+  // pointer motion event (i.e. a delta)
 
-    // The cursor doesn't move unless we tell it to. The cursor automatically
-    // handles constraining the motion to the output layout, as well as any
-    // special configuration applied for the specific input device which
-    // generated the event. You can pass NULL for the device if you want to move
-    // the cursor around without any input.
+  // The cursor doesn't move unless we tell it to. The cursor automatically
+  // handles constraining the motion to the output layout, as well as any
+  // special configuration applied for the specific input device which
+  // generated the event. You can pass NULL for the device if you want to move
+  // the cursor around without any input.
+  fn motion(&self, event: *const wlr_event_pointer_motion) {
+    let event = unsafe { RelativeMotionEvent::from_ptr(event) };
+
+    let delta = event.delta();
     unsafe {
       wlr_cursor_move(
         self.cursor,
-        (*event).device,
-        (*event).delta_x,
-        (*event).delta_y,
+        event.raw_device(),
+        delta.delta_x(),
+        delta.delta_y(),
       );
-      self.process_motion((*event).time_msec);
+      self.process_motion(MotionEvent::Relative(event));
     }
   }
 
+  // This event is forwarded by the cursor when a pointer emits an absolute
+  // motion event, from 0..1 on each axis. This happens, for example, when
+  // wlroots is running under a Wayland window rather than KMS+DRM, and you
+  // move the mouse over the window. You could enter the window from any edge,
+  // so we have to warp the mouse there. There is also some hardware which
+  // emits these events.
   fn motion_absolute(&self, event: *const wlr_event_pointer_motion_absolute) {
-    // This event is forwarded by the cursor when a pointer emits an absolute
-    // motion event, from 0..1 on each axis. This happens, for example, when
-    // wlroots is running under a Wayland window rather than KMS+DRM, and you
-    // move the mouse over the window. You could enter the window from any edge,
-    // so we have to warp the mouse there. There is also some hardware which
-    // emits these events.
+    let event = unsafe { AbsoluteMotionEvent::from_ptr(event) };
+
+    let pos = event.pos();
     unsafe {
-      wlr_cursor_warp_absolute(self.cursor, (*event).device, (*event).x, (*event).y);
-      self.process_motion((*event).time_msec);
+      wlr_cursor_warp_absolute(self.cursor, event.raw_device(), pos.x(), pos.y());
+      self.process_motion(MotionEvent::Absolute(event));
     }
   }
 
   fn button(&self, event: *const wlr_event_pointer_button) {
-    unsafe {
-      wlr_seat_pointer_notify_button(
-        self.seat,
-        (*event).time_msec,
-        (*event).button,
-        (*event).state,
-      );
+    let event = unsafe { ButtonEvent::from_ptr(event) };
 
-      let handled = false;
+    let handled = false;
 
-      if !handled && (*event).state == wlr_button_state_WLR_BUTTON_PRESSED {
+    if !handled {
+      if event.state() == wlr_button_state_WLR_BUTTON_PRESSED {
         let surface = self
           .surface_manager
           .borrow()
@@ -230,20 +239,29 @@ impl CursorEventHandler for CursorManager {
           self.surface_manager.borrow_mut().focus_surface(surface);
         }
       }
+
+      unsafe {
+        wlr_seat_pointer_notify_button(self.seat, event.time_msec(), event.button(), event.state());
+      }
     }
   }
 
   fn axis(&self, event: *const wlr_event_pointer_axis) {
-    // Notify the client with pointer focus of the axis event.
-    unsafe {
-      wlr_seat_pointer_notify_axis(
-        self.seat,
-        (*event).time_msec,
-        (*event).orientation,
-        (*event).delta,
-        (*event).delta_discrete,
-        (*event).source,
-      );
+    let event = unsafe { AxisEvent::from_ptr(event) };
+
+    let handled = false;
+
+    if !handled {
+      unsafe {
+        wlr_seat_pointer_notify_axis(
+          self.seat,
+          event.time_msec(),
+          event.orientation(),
+          event.delta(),
+          event.delta_discrete(),
+          event.source(),
+        );
+      }
     }
   }
 

@@ -214,9 +214,19 @@ impl From<Rectangle> for wlr_box {
 }
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
-pub struct TDisplacement<T> {
+pub struct TDisplacement<T: Copy> {
   pub dx: T,
   pub dy: T,
+}
+
+impl<T: Copy> TDisplacement<T> {
+  pub fn delta_x(&self) -> T {
+    self.dx
+  }
+
+  pub fn delta_y(&self) -> T {
+    self.dy
+  }
 }
 
 pub type Displacement = TDisplacement<i32>;
@@ -224,6 +234,24 @@ pub type FDisplacement = TDisplacement<f64>;
 
 impl Displacement {
   pub const ZERO: Displacement = Displacement { dx: 0, dy: 0 };
+}
+
+impl From<Displacement> for FDisplacement {
+  fn from(point: Displacement) -> Self {
+    FDisplacement {
+      dx: point.dx as f64,
+      dy: point.dy as f64,
+    }
+  }
+}
+
+impl From<FDisplacement> for Displacement {
+  fn from(point: FDisplacement) -> Self {
+    Displacement {
+      dx: point.dx as i32,
+      dy: point.dy as i32,
+    }
+  }
 }
 
 impl<T: Copy> Sub<TPoint<T>> for TPoint<T>

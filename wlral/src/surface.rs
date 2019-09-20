@@ -200,6 +200,8 @@ impl SurfaceManager {
     self
       .surfaces
       .iter()
+      // Reverse as surfaces is from back to front
+      .rev()
       .find(|surface| surface.is_inside(point))
       .cloned()
   }

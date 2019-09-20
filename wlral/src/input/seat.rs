@@ -40,7 +40,7 @@ impl Device {
 
     let mut event_manager = DeviceEventManager::new(Rc::downgrade(&device));
     unsafe {
-      event_manager.destroy(&mut (*device.ptr()).events.destroy);
+      event_manager.destroy(&mut (*device.raw_ptr()).events.destroy);
     }
     *device.event_manager.borrow_mut() = Some(event_manager);
 
@@ -66,7 +66,7 @@ impl Device {
     }
   }
 
-  pub fn ptr(&self) -> *mut wlr_input_device {
+  pub fn raw_ptr(&self) -> *mut wlr_input_device {
     self.device
   }
 }

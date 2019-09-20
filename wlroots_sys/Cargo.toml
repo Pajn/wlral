@@ -11,6 +11,8 @@ libc = "0.2.62"
 wayland-commons = "0.24.0"
 wayland-server = { version = "0.24.0", features = ["use_system_lib"] }
 wayland-sys = { version = "0.24.0", features = ["dlopen", "server"] }
+xkbcommon = "0.4.0"
+xkbcommon-sys = "0.7.4"
 
 [build-dependencies]
 bindgen = "0.51.0"

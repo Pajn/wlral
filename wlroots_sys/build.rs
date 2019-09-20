@@ -21,11 +21,8 @@ fn main() {
     .generate_comments(true)
     .header("src/wlroots.h")
     .whitelist_type(r"^wlr_.*$")
-    .whitelist_type(r"^xkb_.*$")
-    .whitelist_type(r"^XKB_.*$")
     .whitelist_function(r"^_?pixman_.*$")
     .whitelist_function(r"^_?wlr_.*$")
-    .whitelist_function(r"^xkb_.*$")
     .ctypes_prefix("libc")
     .clang_arg("-Iwlroots/include")
     .clang_arg("-Iwlroots/include/wlr")
@@ -42,13 +39,16 @@ fn main() {
     .blacklist_type("FP_ZERO")
     .blacklist_type("FP_SUBNORMAL")
     .blacklist_type("FP_NORMAL")
+    .blacklist_type(r"^xkb_.*$")
+    .blacklist_type(r"^XKB_.*$")
     // Work around duplicate wayland types from wlroots and wayland_sys
     .blacklist_type(r"^wl_(display|list|listener|signal)$");
   if cfg!(feature = "unstable") {
     builder = builder
       .clang_arg("-DWLR_USE_UNSTABLE")
       .raw_line("use wayland_server::sys::common::*;")
-      .raw_line("use wayland_server::sys::server::*;");
+      .raw_line("use wayland_server::sys::server::*;")
+      .raw_line("use xkbcommon::xkb::ffi::*;");
   }
   if !cfg!(feature = "static") {
     // config.h won't exist, so make a dummy file.

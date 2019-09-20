@@ -1,15 +1,17 @@
+use crate::input::events::{InputEvent, KeyboardEvent};
 use crate::input::seat::{Device, DeviceType, InputDeviceManager};
 use std::cell::RefCell;
 use std::ops::Deref;
 use std::pin::Pin;
-use std::ptr;
 use std::rc::{Rc, Weak};
 use wlroots_sys::*;
+use xkbcommon::xkb;
 
 pub struct Keyboard {
   seat: *mut wlr_seat,
   device: Rc<Device>,
   keyboard: *mut wlr_keyboard,
+  xkb_state: xkb::State,
 
   #[allow(unused)]
   event_manager: RefCell<Option<Pin<Box<KeyboardEventManager>>>>,
@@ -21,32 +23,30 @@ impl Keyboard {
       DeviceType::Keyboard(keyboard_ptr) => keyboard_ptr,
       _ => panic!("Keyboard::init expects a keyboard device"),
     };
-    unsafe { (*device.ptr()).__bindgen_anon_1.keyboard };
     let keyboard = Rc::new(Keyboard {
       seat,
       device,
       keyboard: keyboard_ptr,
+      xkb_state: unsafe { xkb::State::from_raw_ptr((*keyboard_ptr).xkb_state) },
       event_manager: RefCell::new(None),
     });
 
     // We need to prepare an XKB keymap and assign it to the keyboard.
     // This assumes the defaults (e.g. layout = "us").
-    let rules = xkb_rule_names {
-      rules: ptr::null(),
-      model: ptr::null(),
-      layout: ptr::null(),
-      variant: ptr::null(),
-      options: ptr::null(),
-    };
+    let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+    let keymap = xkb::Keymap::new_from_names(
+      &context,
+      "", // rules
+      "", // model
+      "", // layout
+      "", // variant
+      None,
+      xkb::KEYMAP_COMPILE_NO_FLAGS,
+    )
+    .expect("xkb::Keymap could not be created");
 
     unsafe {
-      let context = xkb_context_new(xkb_context_flags_XKB_CONTEXT_NO_FLAGS);
-      let keymap =
-        xkb_keymap_new_from_names(context, &rules, xkb_context_flags_XKB_CONTEXT_NO_FLAGS);
-
-      wlr_keyboard_set_keymap(keyboard_ptr, keymap);
-      xkb_keymap_unref(keymap);
-      xkb_context_unref(context);
+      wlr_keyboard_set_keymap(keyboard_ptr, keymap.get_raw_ptr());
       wlr_keyboard_set_repeat_info(keyboard_ptr, 25, 600);
     }
 
@@ -63,11 +63,19 @@ impl Keyboard {
 
     keyboard
   }
+
+  pub fn device(&self) -> Rc<Device> {
+    self.device.clone()
+  }
+
+  pub fn xkb_state(&self) -> &xkb::State {
+    &self.xkb_state
+  }
 }
 
 pub trait KeyboardEventHandler {
   fn modifiers(&self);
-  fn key(&self, event: *mut wlr_event_keyboard_key);
+  fn key(&self, event: *const wlr_event_keyboard_key);
 }
 
 impl KeyboardEventHandler for Keyboard {
@@ -77,31 +85,26 @@ impl KeyboardEventHandler for Keyboard {
       // Wayland protocol - not wlroots. We assign all connected keyboards to the
       // same seat. You can swap out the underlying wlr_keyboard like this and
       // wlr_seat handles this transparently.
-      wlr_seat_set_keyboard(self.seat, self.device.ptr());
+      wlr_seat_set_keyboard(self.seat, self.device.raw_ptr());
       // Send modifiers to the client.
       wlr_seat_keyboard_notify_modifiers(self.seat, &mut (*self.keyboard).modifiers);
     }
   }
 
-  fn key(&self, event: *mut wlr_event_keyboard_key) {
-    unsafe {
-      // Translate libinput keycode -> xkbcommon
-      // let keycode = (*event).keycode + 8;
-      // Get a list of keysyms based on the keymap for this keyboard
-      // let mut syms: xkb_keysym_t = 0;
-      // let nsyms = xkb_state_key_get_syms(
-      //     (*self.keyboard).xkb_state, keycode, &mut &syms);
+  fn key(&self, event: *const wlr_event_keyboard_key) {
+    let event = unsafe { KeyboardEvent::from_ptr(self, event) };
 
-      let handled = false;
+    let handled = false;
 
-      if !handled {
+    if !handled {
+      unsafe {
         // Otherwise, we pass it along to the client.
-        wlr_seat_set_keyboard(self.seat, self.device.ptr());
+        wlr_seat_set_keyboard(self.seat, self.device.raw_ptr());
         wlr_seat_keyboard_notify_key(
           self.seat,
-          (*event).time_msec,
-          (*event).keycode,
-          (*event).state,
+          event.time_msec(),
+          event.libinput_keycode(),
+          event.state(),
         );
       }
     }
@@ -272,21 +275,7 @@ mod tests {
 }
 
 #[cfg(test)]
-unsafe fn xkb_context_new(_: u32) -> *mut xkb_context {
-  ptr::null_mut()
-}
-#[cfg(test)]
-unsafe fn xkb_context_unref(_: *mut xkb_context) {}
-#[cfg(test)]
-unsafe fn xkb_keymap_new_from_names(
-  _: *mut xkb_context,
-  _: &xkb_rule_names,
-  _: u32,
-) -> *mut xkb_keymap {
-  ptr::null_mut()
-}
-#[cfg(test)]
-unsafe fn xkb_keymap_unref(_: *mut xkb_keymap) {}
+use xkbcommon::xkb::ffi::xkb_keymap;
 #[cfg(test)]
 unsafe fn wlr_keyboard_set_keymap(_: *mut wlr_keyboard, _: *mut xkb_keymap) {}
 #[cfg(test)]
