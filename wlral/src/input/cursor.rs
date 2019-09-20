@@ -250,7 +250,9 @@ impl CursorEventHandler for CursorManager {
           .surface_at(&self.position().into());
 
         if let Some(surface) = surface {
-          self.surface_manager.borrow_mut().focus_surface(surface);
+          if surface.can_receive_focus() {
+            self.surface_manager.borrow_mut().focus_surface(surface);
+          }
         }
       }
 

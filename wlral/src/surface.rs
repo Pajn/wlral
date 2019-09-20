@@ -95,6 +95,16 @@ impl Surface {
   pub fn is_inside(&self, point: &Point) -> bool {
     self.extents().contains(&point)
   }
+
+  pub fn can_receive_focus(&self) -> bool {
+    match self.surface_type {
+      Xdg(xdg_surface) => unsafe {
+        (*xdg_surface).role == wlr_xdg_surface_role_WLR_XDG_SURFACE_ROLE_TOPLEVEL
+      },
+      // TODO: Is this true?
+      Xwayland(_) => true,
+    }
+  }
 }
 
 impl PartialEq for Surface {
@@ -224,6 +234,10 @@ impl SurfaceManager {
 
   /// Gives keyboard focus to the surface
   pub fn focus_surface(&mut self, surface: Rc<Surface>) {
+    if !surface.can_receive_focus() {
+      eprintln!("Surface can not receive focus");
+      return;
+    }
     let surface_ptr = surface.surface();
     unsafe {
       let old_surface = (*self.seat).keyboard_state.focused_surface;
