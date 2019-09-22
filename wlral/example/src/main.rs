@@ -4,9 +4,10 @@ use wlral::compositor::Compositor;
 use wlral::geometry::{Displacement, Rectangle};
 use wlral::input::event_filter::EventFilter;
 use wlral::input::events::*;
-use wlral::output::OutputManager;
-use wlral::surface::{Surface, SurfaceManager};
+use wlral::output_manager::OutputManager;
+use wlral::window::Window;
 use wlral::window_management_policy::*;
+use wlral::window_manager::WindowManager;
 
 enum Gesture {
   Move(MoveEvent),
@@ -15,42 +16,38 @@ enum Gesture {
 
 struct FloatingWindowManager {
   output_manager: Rc<RefCell<OutputManager>>,
-  surface_manager: Rc<RefCell<SurfaceManager>>,
+  window_manager: Rc<RefCell<WindowManager>>,
 
   gesture: Option<Gesture>,
 }
 
 impl WindowManagementPolicy for FloatingWindowManager {
-  fn handle_window_ready(&mut self, surface: Rc<Surface>) {
+  fn handle_window_ready(&mut self, window: Rc<Window>) {
     let output = self
       .output_manager
       .borrow()
       .outputs()
       .iter()
-      .find(|output| output.extents().overlaps(&surface.extents()))
+      .find(|output| output.extents().overlaps(&window.extents()))
       .cloned()
       .or_else(|| self.output_manager.borrow().outputs().first().cloned());
 
-    // Center the new surface
+    // Center the new window
     if let Some(output) = output {
-      surface.move_to(
-        output.top_left() + ((output.size() - surface.extents().size()) / 2.0).as_displacement(),
+      window.move_to(
+        output.top_left() + ((output.size() - window.extents().size()) / 2.0).as_displacement(),
       );
     }
 
-    // Focus the new surface
+    // Focus the new window
     self
-      .surface_manager
+      .window_manager
       .borrow_mut()
-      .focus_surface(surface.clone());
+      .focus_window(window.clone());
   }
 
   fn handle_request_move(&mut self, event: MoveEvent) {
-    if !self
-      .surface_manager
-      .borrow()
-      .surface_has_focus(&event.surface)
-    {
+    if !self.window_manager.borrow().window_has_focus(&event.window) {
       // Deny move requests from unfocused clients
       return;
     }
@@ -58,16 +55,12 @@ impl WindowManagementPolicy for FloatingWindowManager {
     self.gesture = Some(Gesture::Move(event))
   }
   fn handle_request_resize(&mut self, event: ResizeEvent) {
-    if !self
-      .surface_manager
-      .borrow()
-      .surface_has_focus(&event.surface)
-    {
+    if !self.window_manager.borrow().window_has_focus(&event.window) {
       // Deny resize requests from unfocused clients
       return;
     }
 
-    let original_extents = event.surface.extents();
+    let original_extents = event.window.extents();
     self.gesture = Some(Gesture::Resize(event, original_extents))
   }
 }
@@ -77,7 +70,7 @@ impl EventFilter for FloatingWindowManager {
     match &self.gesture {
       Some(Gesture::Move(gesture)) => {
         gesture
-          .surface
+          .window
           .move_to((event.position() - gesture.drag_point.as_displacement()).into());
         true
       }
@@ -99,8 +92,8 @@ impl EventFilter for FloatingWindowManager {
           extents.size.width += displacement.dx;
         }
 
-        gesture.surface.move_to(extents.top_left);
-        gesture.surface.resize(extents.size);
+        gesture.window.move_to(extents.top_left);
+        gesture.window.resize(extents.size);
 
         true
       }
@@ -123,7 +116,7 @@ fn main() {
   let compositor = Compositor::init().expect("Could not initialize compositor");
   let window_manager = FloatingWindowManager {
     output_manager: compositor.output_manager(),
-    surface_manager: compositor.surface_manager(),
+    window_manager: compositor.window_manager(),
 
     gesture: None,
   };

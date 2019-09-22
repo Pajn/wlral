@@ -1,6 +1,6 @@
 use crate::geometry::FPoint;
 use crate::output::Output;
-use crate::surface::Surface;
+use crate::window::Window;
 use bitflags::bitflags;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -16,22 +16,22 @@ bitflags! {
 }
 
 pub struct MoveEvent {
-  pub surface: Rc<Surface>,
-  // Surface local coordinates of where on the window the drag was initiated
+  pub window: Rc<Window>,
+  // Window local coordinates of where on the window the drag was initiated
   pub drag_point: FPoint,
 }
 
 pub struct ResizeEvent {
-  pub surface: Rc<Surface>,
+  pub window: Rc<Window>,
   // Global coordinates of the cursor position where the resize was initiated
   pub cursor_position: FPoint,
   pub edges: WindowEdge,
 }
 
 pub trait WindowManagementPolicy {
-  fn handle_window_ready(&mut self, _surface: Rc<Surface>) {}
-  fn advise_new_window(&mut self, _surface: Rc<Surface>) {}
-  fn advise_delete_window(&mut self, _surface: Rc<Surface>) {}
+  fn handle_window_ready(&mut self, _window: Rc<Window>) {}
+  fn advise_new_window(&mut self, _window: Rc<Window>) {}
+  fn advise_delete_window(&mut self, _window: Rc<Window>) {}
 
   /// request from client to initiate move
   fn handle_request_move(&mut self, _event: MoveEvent) {}
@@ -42,13 +42,13 @@ pub trait WindowManagementPolicy {
   fn advise_output_delete(&mut self, _output: Rc<Output>) {}
 }
 
-pub(crate) struct WmManager {
+pub(crate) struct WmPolicyManager {
   policy: Option<Rc<RefCell<dyn WindowManagementPolicy>>>,
 }
 
-impl WmManager {
-  pub(crate) fn new() -> WmManager {
-    WmManager { policy: None }
+impl WmPolicyManager {
+  pub(crate) fn new() -> WmPolicyManager {
+    WmPolicyManager { policy: None }
   }
 
   pub(crate) fn set_policy<T>(&mut self, policy: Rc<RefCell<T>>)
@@ -59,20 +59,20 @@ impl WmManager {
   }
 }
 
-impl WindowManagementPolicy for WmManager {
-  fn handle_window_ready(&mut self, surface: Rc<Surface>) {
+impl WindowManagementPolicy for WmPolicyManager {
+  fn handle_window_ready(&mut self, window: Rc<Window>) {
     if let Some(ref mut policy) = self.policy {
-      policy.borrow_mut().handle_window_ready(surface)
+      policy.borrow_mut().handle_window_ready(window)
     }
   }
-  fn advise_new_window(&mut self, surface: Rc<Surface>) {
+  fn advise_new_window(&mut self, window: Rc<Window>) {
     if let Some(ref mut policy) = self.policy {
-      policy.borrow_mut().advise_new_window(surface)
+      policy.borrow_mut().advise_new_window(window)
     }
   }
-  fn advise_delete_window(&mut self, surface: Rc<Surface>) {
+  fn advise_delete_window(&mut self, window: Rc<Window>) {
     if let Some(ref mut policy) = self.policy {
-      policy.borrow_mut().advise_delete_window(surface)
+      policy.borrow_mut().advise_delete_window(window)
     }
   }
 

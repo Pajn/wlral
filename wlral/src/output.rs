@@ -1,6 +1,8 @@
 use crate::geometry::{Displacement, Point, Rectangle, Size, TransformMatrix};
-use crate::surface::*;
-use crate::window_management_policy::{WindowManagementPolicy, WmManager};
+use crate::output_manager::OutputManager;
+use crate::window::Window;
+use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
+use crate::window_manager::WindowManager;
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::ptr;
@@ -9,18 +11,23 @@ use std::time::Instant;
 use wlroots_sys::*;
 
 pub struct Output {
-  wm_manager: Rc<RefCell<WmManager>>,
-  surface_manager: Rc<RefCell<SurfaceManager>>,
-  output_manager: Rc<RefCell<OutputManager>>,
-  renderer: *mut wlr_renderer,
-  output_layout: *mut wlr_output_layout,
-  output: *mut wlr_output,
-  created_at: Instant,
+  pub(crate) wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+  pub(crate) window_manager: Rc<RefCell<WindowManager>>,
+  pub(crate) output_manager: Rc<RefCell<OutputManager>>,
 
-  event_manager: RefCell<Option<Pin<Box<OutputEventManager>>>>,
+  pub(crate) renderer: *mut wlr_renderer,
+  pub(crate) output_layout: *mut wlr_output_layout,
+  pub(crate) output: *mut wlr_output,
+  pub(crate) created_at: Instant,
+
+  pub(crate) event_manager: RefCell<Option<Pin<Box<OutputEventManager>>>>,
 }
 
 impl Output {
+  pub fn raw_ptr(&self) -> *mut wlr_output {
+    self.output
+  }
+
   pub fn use_preferred_mode(&self) {
     unsafe {
       // Some backends don't have modes. DRM+KMS does, and we need to set a mode
@@ -73,9 +80,9 @@ impl Output {
     unsafe { TransformMatrix((*self.output).transform_matrix) }
   }
 
-  pub(crate) fn render_surface(&self, frame_time: &timespec, surface: Rc<Surface>) {
+  pub(crate) fn render_window(&self, frame_time: &timespec, surface: Rc<Window>) {
     unsafe {
-      let wlr_surface = &mut *surface.surface();
+      let wlr_surface = &mut *surface.wlr_surface();
 
       // We first obtain a wlr_texture, which is a GPU resource. wlroots
       // automatically handles negotiating these with the client. The underlying
@@ -140,7 +147,7 @@ impl Output {
   }
 }
 
-trait OutputEventHandler {
+pub(crate) trait OutputEventHandler {
   fn frame(&self);
   fn destroy(self);
 }
@@ -169,8 +176,8 @@ impl OutputEventHandler for Rc<Output> {
         tv_nsec: since_creation.subsec_nanos() as i64,
       };
 
-      for surface in self.surface_manager.borrow().surfaces_to_render() {
-        self.render_surface(&frame_time, surface);
+      for window in self.window_manager.borrow().windows_to_render() {
+        self.render_window(&frame_time, window);
       }
 
       // Hardware cursors are rendered by the GPU on a separate plane, and can be
@@ -191,7 +198,7 @@ impl OutputEventHandler for Rc<Output> {
   fn destroy(self) {
     println!("destroy output");
     self
-      .wm_manager
+      .wm_policy_manager
       .borrow_mut()
       .advise_output_delete(self.clone());
     self.output_manager.borrow_mut().destroy_output(&self)
@@ -229,154 +236,5 @@ impl OutputEvents for Rc<Output> {
     }
 
     *self.event_manager.borrow_mut() = Some(event_manager);
-  }
-}
-
-wayland_listener!(
-  pub OutputManagerEventManager,
-  Rc<RefCell<OutputManager>>,
-  [
-    new_output => new_output_func: |this: &mut OutputManagerEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut manager = this.data;
-      let wm_manager = manager.borrow().wm_manager.clone();
-      let surface_manager = manager.borrow().surface_manager.clone();
-      let output_manager = manager.clone();
-      let renderer = manager.borrow().renderer;
-      let output_layout = manager.borrow().output_layout;
-      manager.borrow_mut().new_output(
-        Output {
-          wm_manager,
-          surface_manager,
-          output_manager,
-          renderer,
-          output_layout,
-          output: data as *mut wlr_output,
-          created_at: Instant::now(),
-          event_manager: RefCell::new(None),
-        }
-      );
-    };
-  ]
-);
-
-#[allow(unused)]
-pub struct OutputManager {
-  wm_manager: Rc<RefCell<WmManager>>,
-  surface_manager: Rc<RefCell<SurfaceManager>>,
-  renderer: *mut wlr_renderer,
-  output_layout: *mut wlr_output_layout,
-  outputs: Vec<Rc<Output>>,
-
-  event_manager: Option<Pin<Box<OutputManagerEventManager>>>,
-}
-
-impl OutputManager {
-  pub(crate) fn init(
-    wm_manager: Rc<RefCell<WmManager>>,
-    surface_manager: Rc<RefCell<SurfaceManager>>,
-    backend: *mut wlr_backend,
-    renderer: *mut wlr_renderer,
-    output_layout: *mut wlr_output_layout,
-  ) -> Rc<RefCell<OutputManager>> {
-    let output_manager = Rc::new(RefCell::new(OutputManager {
-      wm_manager,
-      surface_manager,
-      renderer,
-      output_layout,
-      outputs: vec![],
-
-      event_manager: None,
-    }));
-
-    println!("OutputManager::init prebind");
-
-    let mut event_manager = OutputManagerEventManager::new(output_manager.clone());
-
-    unsafe {
-      event_manager.new_output(&mut (*backend).events.new_output);
-    }
-
-    output_manager.borrow_mut().event_manager = Some(event_manager);
-
-    println!("OutputManager::init postbind");
-
-    output_manager
-  }
-
-  fn new_output(&mut self, output: Output) {
-    println!("new_output");
-
-    output.use_preferred_mode();
-
-    unsafe {
-      // Adds this to the output layout. The add_auto function arranges outputs
-      // from left-to-right in the order they appear. A more sophisticated
-      // compositor would let the user configure the arrangement of outputs in the
-      // layout.
-      wlr_output_layout_add_auto(self.output_layout, output.output);
-
-      // Creating the global adds a wl_output global to the display, which Wayland
-      // clients can see to find out information about the output (such as
-      // DPI, scale factor, manufacturer, etc).
-      wlr_output_create_global(output.output);
-    }
-
-    let output = Rc::new(output);
-
-    output.bind_events();
-
-    self.outputs.push(output);
-  }
-
-  fn destroy_output(&mut self, destroyed_output: &Output) {
-    self
-      .outputs
-      .retain(|output| output.output != destroyed_output.output);
-  }
-
-  pub fn outputs(&self) -> &Vec<Rc<Output>> {
-    &self.outputs
-  }
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-  use std::ptr;
-  use std::rc::Rc;
-
-  #[test]
-  fn it_drops_and_cleans_up_on_destroy() {
-    let wm_manager = Rc::new(RefCell::new(WmManager::new()));
-    let surface_manager = Rc::new(RefCell::new(SurfaceManager::init(ptr::null_mut())));
-    let output_manager = Rc::new(RefCell::new(OutputManager {
-      wm_manager: wm_manager.clone(),
-      surface_manager: surface_manager.clone(),
-      renderer: ptr::null_mut(),
-      output_layout: ptr::null_mut(),
-      outputs: vec![],
-
-      event_manager: None,
-    }));
-    let output = Rc::new(Output {
-      wm_manager,
-      surface_manager,
-      output_manager: output_manager.clone(),
-      renderer: ptr::null_mut(),
-      output_layout: ptr::null_mut(),
-      output: ptr::null_mut(),
-      created_at: Instant::now(),
-      event_manager: RefCell::new(None),
-    });
-
-    output_manager.borrow_mut().outputs.push(output.clone());
-
-    let weak_output = Rc::downgrade(&output);
-    drop(output);
-
-    weak_output.upgrade().unwrap().destroy();
-
-    assert!(output_manager.borrow().outputs.len() == 0);
-    assert!(weak_output.upgrade().is_none());
   }
 }

@@ -2,11 +2,11 @@ use crate::input::cursor::*;
 use crate::input::event_filter::*;
 use crate::input::keyboard::*;
 use crate::input::seat::*;
-use crate::output::*;
+use crate::output_manager::OutputManager;
 use crate::shell::xdg::*;
 use crate::shell::xwayland::*;
-use crate::surface::*;
-use crate::window_management_policy::{WindowManagementPolicy, WmManager};
+use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
+use crate::window_manager::WindowManager;
 use std::cell::RefCell;
 use std::env;
 use std::ffi::{CStr, CString};
@@ -24,7 +24,7 @@ pub struct Compositor {
   output_layout: *mut wlr_output_layout,
   output_manager: Rc<RefCell<OutputManager>>,
 
-  surface_manager: Rc<RefCell<SurfaceManager>>,
+  window_manager: Rc<RefCell<WindowManager>>,
   xdg_manager: XdgManager,
   xwayland_manager: XwaylandManager,
 
@@ -32,13 +32,13 @@ pub struct Compositor {
   cursor_manager: Rc<RefCell<dyn CursorManager>>,
   keyboard_manager: Rc<RefCell<KeyboardManager>>,
 
-  wm_manager: Rc<RefCell<WmManager>>,
+  wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
   event_filter_manager: Rc<RefCell<EventFilterManager>>,
 }
 
 impl Compositor {
   pub fn init() -> Result<Compositor, u32> {
-    let wm_manager = Rc::new(RefCell::new(WmManager::new()));
+    let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
 
     unsafe {
       // The Wayland display is managed by libwayland. It handles accepting
@@ -73,15 +73,15 @@ impl Compositor {
       // let us know when new input devices are available on the backend.
       let seat = wlr_seat_create(display, CString::new("seat0").unwrap().as_ptr());
 
-      let surface_manager = Rc::new(RefCell::new(SurfaceManager::init(seat)));
+      let window_manager = Rc::new(RefCell::new(WindowManager::init(seat)));
 
       // Creates an output layout, which a wlroots utility for working with an
       // arrangement of screens in a physical layout.
       let output_layout = wlr_output_layout_create();
 
       let output_manager = OutputManager::init(
-        wm_manager.clone(),
-        surface_manager.clone(),
+        wm_policy_manager.clone(),
+        window_manager.clone(),
         backend,
         renderer,
         output_layout,
@@ -89,7 +89,7 @@ impl Compositor {
 
       let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
       let cursor_manager = CursorManagerImpl::init(
-        surface_manager.clone(),
+        window_manager.clone(),
         event_filter_manager.clone(),
         output_layout,
         seat,
@@ -106,14 +106,14 @@ impl Compositor {
       );
 
       let xdg_manager = XdgManager::init(
-        wm_manager.clone(),
-        surface_manager.clone(),
+        wm_policy_manager.clone(),
+        window_manager.clone(),
         cursor_manager.clone(),
         display,
       );
       let xwayland_manager = XwaylandManager::init(
-        wm_manager.clone(),
-        surface_manager.clone(),
+        wm_policy_manager.clone(),
+        window_manager.clone(),
         cursor_manager.clone(),
         display,
         compositor,
@@ -152,7 +152,7 @@ impl Compositor {
         output_layout,
         output_manager,
 
-        surface_manager,
+        window_manager,
         xdg_manager,
         xwayland_manager,
 
@@ -160,7 +160,7 @@ impl Compositor {
         cursor_manager,
         keyboard_manager,
 
-        wm_manager,
+        wm_policy_manager,
         event_filter_manager,
       })
     }
@@ -170,8 +170,8 @@ impl Compositor {
     self.output_manager.clone()
   }
 
-  pub fn surface_manager(&self) -> Rc<RefCell<SurfaceManager>> {
-    self.surface_manager.clone()
+  pub fn window_manager(&self) -> Rc<RefCell<WindowManager>> {
+    self.window_manager.clone()
   }
 
   pub fn cursor_manager(&self) -> Rc<RefCell<dyn CursorManager>> {
@@ -191,7 +191,7 @@ impl Compositor {
   {
     let window_management_policy = Rc::new(RefCell::new(window_management_policy));
     self
-      .wm_manager
+      .wm_policy_manager
       .borrow_mut()
       .set_policy(window_management_policy.clone());
     self

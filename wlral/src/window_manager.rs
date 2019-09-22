@@ -1,0 +1,159 @@
+use crate::geometry::Point;
+use crate::surface::{Surface, SurfaceExt};
+use crate::window::Window;
+use std::cell::RefCell;
+use std::rc::Rc;
+use wlroots_sys::*;
+
+pub struct WindowManager {
+  seat: *mut wlr_seat,
+  windows: Vec<Rc<Window>>,
+}
+
+impl WindowManager {
+  pub fn init(seat: *mut wlr_seat) -> WindowManager {
+    WindowManager {
+      seat,
+      windows: vec![],
+    }
+  }
+
+  pub fn windows_to_render<'a>(&'a self) -> impl 'a + Iterator<Item = Rc<Window>> {
+    self
+      .windows
+      .iter()
+      .filter(|window| *window.mapped.borrow())
+      .cloned()
+  }
+
+  pub fn window_at(&self, point: &Point) -> Option<Rc<Window>> {
+    self
+      .windows
+      .iter()
+      // Reverse as windows is from back to front
+      .rev()
+      .find(|window| window.extents().contains(point))
+      .cloned()
+  }
+
+  pub(crate) fn window_buffer_at(&self, point: &Point) -> Option<Rc<Window>> {
+    self
+      .windows
+      .iter()
+      // Reverse as windows is from back to front
+      .rev()
+      .find(|window| window.buffer_extents().contains(point))
+      .cloned()
+  }
+
+  pub fn new_window(&mut self, surface: Surface) -> Rc<Window> {
+    let window = Rc::new(Window {
+      surface,
+      mapped: RefCell::new(false),
+      top_left: RefCell::new(Point::ZERO),
+      event_manager: RefCell::new(None),
+    });
+    self.windows.insert(0, window.clone());
+    window
+  }
+
+  pub fn destroy_window(&mut self, destroyed_window: Rc<Window>) {
+    self.windows.retain(|window| *window != destroyed_window);
+  }
+
+  /// If the window have keyboard focus
+  pub fn window_has_focus(&self, window: &Window) -> bool {
+    let wlr_surface = window.wlr_surface();
+    let focused_window = unsafe { (*self.seat).keyboard_state.focused_surface };
+    wlr_surface == focused_window
+  }
+
+  /// Gives keyboard focus to the window
+  pub fn focus_window(&mut self, window: Rc<Window>) {
+    if !window.can_receive_focus() {
+      eprintln!("Window can not receive focus");
+      return;
+    }
+    let wlr_surface = window.wlr_surface();
+    unsafe {
+      let old_wlr_surface = (*self.seat).keyboard_state.focused_surface;
+
+      if wlr_surface == old_wlr_surface {
+        return;
+      }
+
+      if !old_wlr_surface.is_null() {
+        // Deactivate the previously focused window. This lets the client know
+        // it no longer has focus and the client will repaint accordingly, e.g.
+        // stop displaying a caret.
+        let surface = Surface::from_wlr_surface(old_wlr_surface);
+        surface.set_activated(false);
+      }
+
+      // Move the view to the front
+      self.windows.retain(|s| *s != window);
+      self.windows.push(window.clone());
+
+      // Activate the new window
+      window.surface().set_activated(true);
+
+      // Tell the seat to have the keyboard enter this window. wlroots will keep
+      // track of this and automatically send key events to the appropriate
+      // clients without additional work on your part.
+      let keyboard = wlr_seat_get_keyboard(self.seat);
+      wlr_seat_keyboard_notify_enter(
+        self.seat,
+        wlr_surface,
+        (*keyboard).keycodes.as_mut_ptr(),
+        (*keyboard).num_keycodes,
+        &mut (*keyboard).modifiers,
+      );
+    }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::input::cursor::MockCursorManager;
+  use crate::test_util::*;
+  use crate::window::WindowEvents;
+  use crate::window_management_policy::WmPolicyManager;
+  use std::ptr;
+  use std::rc::Rc;
+
+  #[test]
+  fn it_drops_and_cleans_up_on_destroy() {
+    let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
+    let cursor_manager = Rc::new(RefCell::new(MockCursorManager::default()));
+    let window_manager = Rc::new(RefCell::new(WindowManager::init(ptr::null_mut())));
+    let window = window_manager.borrow_mut().new_window(Surface::Null);
+
+    let map_signal = WlSignal::new();
+    let unmap_signal = WlSignal::new();
+    let destroy_signal = WlSignal::new();
+
+    window.bind_events(
+      wm_policy_manager,
+      window_manager.clone(),
+      cursor_manager.clone(),
+      |event_manager| unsafe {
+        event_manager.map(map_signal.ptr());
+        event_manager.unmap(unmap_signal.ptr());
+        event_manager.destroy(destroy_signal.ptr());
+      },
+    );
+
+    let weak_window = Rc::downgrade(&window);
+    drop(window);
+
+    assert!(weak_window.upgrade().is_some());
+    assert!(destroy_signal.listener_count() == 1);
+
+    destroy_signal.emit();
+
+    assert!(destroy_signal.listener_count() == 0);
+    assert!(window_manager.borrow().windows.len() == 0);
+    assert!(weak_window.upgrade().is_none());
+  }
+}

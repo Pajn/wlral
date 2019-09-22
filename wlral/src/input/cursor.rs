@@ -2,7 +2,7 @@ use crate::geometry::FPoint;
 use crate::input::event_filter::{EventFilter, EventFilterManager};
 use crate::input::events::*;
 use crate::input::seat::{Device, InputDeviceManager};
-use crate::surface::SurfaceManager;
+use crate::window_manager::WindowManager;
 use std::cell::RefCell;
 use std::ffi::CString;
 use std::ops::Deref;
@@ -24,7 +24,7 @@ pub trait CursorManager {
 }
 
 pub struct CursorManagerImpl {
-  surface_manager: Rc<RefCell<SurfaceManager>>,
+  window_manager: Rc<RefCell<WindowManager>>,
   event_filter_manager: Rc<RefCell<EventFilterManager>>,
   seat: *mut wlr_seat,
   cursor: *mut wlr_cursor,
@@ -51,7 +51,7 @@ impl CursorManager for CursorManagerImpl {
 
 impl CursorManagerImpl {
   pub(crate) fn init(
-    surface_manager: Rc<RefCell<SurfaceManager>>,
+    window_manager: Rc<RefCell<WindowManager>>,
     event_filter_manager: Rc<RefCell<EventFilterManager>>,
     output_layout: *mut wlr_output_layout,
     seat: *mut wlr_seat,
@@ -68,7 +68,7 @@ impl CursorManagerImpl {
 
     let cursor_manager = Rc::new(RefCell::new(CursorManagerImpl {
       event_filter_manager,
-      surface_manager,
+      window_manager,
       seat,
       cursor,
       cursor_mgr,
@@ -98,13 +98,13 @@ impl CursorManagerImpl {
   fn process_motion(&self, event: MotionEvent) {
     let position = self.position();
     let surface = self
-      .surface_manager
+      .window_manager
       .borrow()
-      .surface_buffer_at(&position.into());
+      .window_buffer_at(&position.into());
 
     if let Some(surface) = surface {
       let focus_changed =
-        unsafe { (*self.seat).pointer_state.focused_surface != surface.surface() };
+        unsafe { (*self.seat).pointer_state.focused_surface != surface.wlr_surface() };
       let surface_position =
         position - FPoint::from(surface.buffer_extents().top_left()).as_displacement();
 
@@ -117,7 +117,7 @@ impl CursorManagerImpl {
       unsafe {
         wlr_seat_pointer_notify_enter(
           self.seat,
-          surface.surface(),
+          surface.wlr_surface(),
           surface_position.x,
           surface_position.y,
         );
@@ -245,17 +245,17 @@ impl CursorEventHandler for Rc<RefCell<CursorManagerImpl>> {
       if event.state() == ButtonState::Pressed {
         let surface = self
           .borrow()
-          .surface_manager
+          .window_manager
           .borrow()
-          .surface_buffer_at(&self.borrow().position().into());
+          .window_buffer_at(&self.borrow().position().into());
 
         if let Some(surface) = surface {
           if surface.can_receive_focus() {
             self
               .borrow()
-              .surface_manager
+              .window_manager
               .borrow_mut()
-              .focus_surface(surface);
+              .focus_window(surface);
           }
         }
       }
@@ -377,10 +377,10 @@ mod tests {
 
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
-    let surface_manager = Rc::new(RefCell::new(SurfaceManager::init(ptr::null_mut())));
+    let window_manager = Rc::new(RefCell::new(WindowManager::init(ptr::null_mut())));
     let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
     let cursor_manager = Rc::new(RefCell::new(CursorManagerImpl {
-      surface_manager,
+      window_manager,
       event_filter_manager,
       seat: ptr::null_mut(),
       cursor: ptr::null_mut(),

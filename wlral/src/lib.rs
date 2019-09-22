@@ -7,9 +7,12 @@ pub mod compositor;
 pub mod geometry;
 pub mod input;
 pub mod output;
+pub mod output_manager;
 pub mod shell;
 pub mod surface;
+pub mod window;
 pub mod window_management_policy;
+pub mod window_manager;
 
 #[cfg(test)]
 pub mod test_util {

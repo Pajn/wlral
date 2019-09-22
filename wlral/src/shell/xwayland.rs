@@ -1,6 +1,9 @@
+use crate::geometry::*;
 use crate::input::cursor::CursorManager;
-use crate::surface::*;
-use crate::window_management_policy::{WindowManagementPolicy, WmManager};
+use crate::surface::{Surface, SurfaceExt};
+use crate::window::WindowEvents;
+use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
+use crate::window_manager::WindowManager;
 use std::cell::RefCell;
 use std::env;
 use std::ffi::CStr;
@@ -9,22 +12,98 @@ use std::rc::Rc;
 use wayland_sys::server::wl_display;
 use wlroots_sys::*;
 
+#[derive(PartialEq, Eq)]
+pub struct XwaylandSurface(*mut wlr_xwayland_surface);
+
+impl XwaylandSurface {
+  pub(crate) fn from_wlr_surface(wlr_surface: *mut wlr_surface) -> Result<XwaylandSurface, ()> {
+    unsafe {
+      if wlr_surface_is_xwayland_surface(wlr_surface) {
+        let xwayland_surface = wlr_xwayland_surface_from_wlr_surface(wlr_surface);
+        Ok(XwaylandSurface(xwayland_surface))
+      } else {
+        Err(())
+      }
+    }
+  }
+}
+
+impl SurfaceExt for XwaylandSurface {
+  fn wlr_surface(&self) -> *mut wlr_surface {
+    unsafe { (*self.0).surface }
+  }
+
+  fn parent_displacement(&self) -> Displacement {
+    Displacement::ZERO
+  }
+
+  fn extents(&self) -> Rectangle {
+    unsafe {
+      Rectangle {
+        top_left: Point {
+          x: (*self.0).x as i32,
+          y: (*self.0).y as i32,
+        },
+        size: Size {
+          width: (*self.0).width as i32,
+          height: (*self.0).height as i32,
+        },
+      }
+    }
+  }
+
+  fn move_to(&self, top_left: Point) {
+    unsafe {
+      wlr_xwayland_surface_configure(
+        self.0,
+        top_left.x as i16,
+        top_left.y as i16,
+        (*self.0).width,
+        (*self.0).height,
+      );
+    }
+  }
+
+  fn resize(&self, size: Size) {
+    unsafe {
+      wlr_xwayland_surface_configure(
+        self.0,
+        (*self.0).x,
+        (*self.0).y,
+        size.width as u16,
+        size.height as u16,
+      );
+    }
+  }
+
+  fn can_receive_focus(&self) -> bool {
+    // TODO: Is this true?
+    true
+  }
+
+  fn set_activated(&self, activated: bool) {
+    unsafe {
+      wlr_xwayland_surface_activate(self.0, activated);
+    }
+  }
+}
+
 pub struct XwaylandEventHandler {
-  wm_manager: Rc<RefCell<WmManager>>,
-  surface_manager: Rc<RefCell<SurfaceManager>>,
+  wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+  window_manager: Rc<RefCell<WindowManager>>,
   cursor_manager: Rc<RefCell<dyn CursorManager>>,
 }
 impl XwaylandEventHandler {
   fn new_surface(&mut self, xwayland_surface: *mut wlr_xwayland_surface) {
     println!("new_surface");
     let surface = self
-      .surface_manager
+      .window_manager
       .borrow_mut()
-      .new_surface(SurfaceType::Xwayland(xwayland_surface));
+      .new_window(Surface::Xwayland(XwaylandSurface(xwayland_surface)));
 
     surface.bind_events(
-      self.wm_manager.clone(),
-      self.surface_manager.clone(),
+      self.wm_policy_manager.clone(),
+      self.window_manager.clone(),
       self.cursor_manager.clone(),
       |event_manager| unsafe {
         event_manager.map(&mut (*xwayland_surface).events.map);
@@ -34,8 +113,9 @@ impl XwaylandEventHandler {
         event_manager.request_resize(&mut (*xwayland_surface).events.request_resize);
       },
     );
+
     self
-      .wm_manager
+      .wm_policy_manager
       .borrow_mut()
       .advise_new_window(surface.clone());
   }
@@ -62,8 +142,8 @@ pub struct XwaylandManager {
 
 impl XwaylandManager {
   pub(crate) fn init(
-    wm_manager: Rc<RefCell<WmManager>>,
-    surface_manager: Rc<RefCell<SurfaceManager>>,
+    wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+    window_manager: Rc<RefCell<WindowManager>>,
     cursor_manager: Rc<RefCell<dyn CursorManager>>,
     display: *mut wl_display,
     compositor: *mut wlr_compositor,
@@ -81,8 +161,8 @@ impl XwaylandManager {
     println!("{}", socket_name.clone());
 
     let event_handler = Rc::new(RefCell::new(XwaylandEventHandler {
-      wm_manager,
-      surface_manager,
+      wm_policy_manager,
+      window_manager,
       cursor_manager,
     }));
 
