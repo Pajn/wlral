@@ -119,10 +119,9 @@ impl Compositor {
         compositor,
       );
 
-      // TODO: fix
-      // event_filter_manager
-      //   .borrow_mut()
-      //   .add_event_filter(Box::new(VtSwitchEventFilter::new(backend)));
+      event_filter_manager
+        .borrow_mut()
+        .add_event_filter(Box::new(VtSwitchEventFilter::new(backend)));
 
       // Add a Unix socket to the Wayland display.
       let socket = ffi_dispatch!(WAYLAND_SERVER_HANDLE, wl_display_add_socket_auto, display);

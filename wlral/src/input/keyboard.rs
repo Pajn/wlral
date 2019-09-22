@@ -7,6 +7,8 @@ use std::pin::Pin;
 use std::rc::{Rc, Weak};
 use wlroots_sys::*;
 use xkbcommon::xkb;
+#[cfg(not(test))]
+use xkbcommon::xkb::ffi::xkb_state_ref;
 
 pub struct Keyboard {
   event_filter_manager: Rc<RefCell<EventFilterManager>>,
@@ -29,14 +31,6 @@ impl Keyboard {
       DeviceType::Keyboard(keyboard_ptr) => keyboard_ptr,
       _ => panic!("Keyboard::init expects a keyboard device"),
     };
-    let keyboard = Rc::new(Keyboard {
-      event_filter_manager,
-      seat,
-      device,
-      keyboard: keyboard_ptr,
-      xkb_state: unsafe { xkb::State::from_raw_ptr((*keyboard_ptr).xkb_state) },
-      event_manager: RefCell::new(None),
-    });
 
     // We need to prepare an XKB keymap and assign it to the keyboard.
     // This assumes the defaults (e.g. layout = "us").
@@ -56,6 +50,15 @@ impl Keyboard {
       wlr_keyboard_set_keymap(keyboard_ptr, keymap.get_raw_ptr());
       wlr_keyboard_set_repeat_info(keyboard_ptr, 25, 600);
     }
+
+    let keyboard = Rc::new(Keyboard {
+      event_filter_manager,
+      seat,
+      device,
+      keyboard: keyboard_ptr,
+      xkb_state: unsafe { xkb::State::from_raw_ptr(xkb_state_ref((*keyboard_ptr).xkb_state)) },
+      event_manager: RefCell::new(None),
+    });
 
     println!("Keyboard::init prebind");
 
@@ -294,8 +297,12 @@ mod tests {
 }
 
 #[cfg(test)]
-use xkbcommon::xkb::ffi::xkb_keymap;
+use xkbcommon::xkb::ffi::{xkb_keymap, xkb_state};
 #[cfg(test)]
 unsafe fn wlr_keyboard_set_keymap(_: *mut wlr_keyboard, _: *mut xkb_keymap) {}
 #[cfg(test)]
 unsafe fn wlr_keyboard_set_repeat_info(_: *mut wlr_keyboard, _: u32, _: u32) {}
+#[cfg(test)]
+unsafe fn xkb_state_ref(ptr: *mut xkb_state) -> *mut xkb_state {
+  ptr
+}
