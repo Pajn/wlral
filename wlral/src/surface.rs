@@ -327,7 +327,7 @@ impl SurfaceManager {
       top_left: RefCell::new(Point::ZERO),
       event_manager: RefCell::new(None),
     });
-    self.surfaces.push(surface.clone());
+    self.surfaces.insert(0, surface.clone());
     surface
   }
 

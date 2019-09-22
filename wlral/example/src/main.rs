@@ -31,11 +31,18 @@ impl WindowManagementPolicy for FloatingWindowManager {
       .cloned()
       .or_else(|| self.output_manager.borrow().outputs().first().cloned());
 
+    // Center the new surface
     if let Some(output) = output {
       surface.move_to(
         output.top_left() + ((output.size() - surface.extents().size()) / 2.0).as_displacement(),
       );
     }
+
+    // Focus the new surface
+    self
+      .surface_manager
+      .borrow_mut()
+      .focus_surface(surface.clone());
   }
 
   fn handle_request_move(&mut self, event: MoveEvent) {
