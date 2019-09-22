@@ -91,12 +91,10 @@ impl Output {
       // one next to the other, both 1080p, a view on the rightmost display might
       // have layout coordinates of 2000,100. We need to translate that to
       // output-local coordinates, or (2000 - 1920).
-      // double ox = 0, oy = 0;
-      // wlr_output_layout_output_coords(
-      //     view->server->output_layout, output, &ox, &oy);
-      // ox += view->x + sx, oy += view->y + sy;
+      let buffer_extents = surface.buffer_extents();
+
       let top_left = self.top_left()
-        + surface.buffer_top_left().as_displacement()
+        + buffer_extents.top_left().as_displacement()
         + Displacement {
           dx: wlr_surface.sx,
           dy: wlr_surface.sy,
@@ -106,7 +104,7 @@ impl Output {
       // part of the puzzle, TinyWL does not fully support HiDPI.
       let render_box = Rectangle {
         top_left: top_left * self.scale(),
-        size: surface.buffer_size() * self.scale(),
+        size: buffer_extents.size() * self.scale(),
       }
       .into();
 

@@ -7,6 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bitflags = "1.1.0"
 wlroots_sys = { path = "../wlroots_sys", features = ["static", "unstable"] }
 wayland-sys = "0.24.0"
 wayland-server = "0.24.0"
@@ -15,3 +16,6 @@ xkbcommon-sys = "0.7.4"
 
 [build-dependencies]
 cbindgen = "0.9.1"
+
+[dev-dependencies]
+mockall = "0.5.0"

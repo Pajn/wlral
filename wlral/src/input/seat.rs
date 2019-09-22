@@ -1,5 +1,3 @@
-use crate::input::cursor::CursorManager;
-use crate::input::keyboard::KeyboardManager;
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::{Rc, Weak};
@@ -187,8 +185,8 @@ impl SeatManager {
   pub(crate) fn init(
     backend: *mut wlr_backend,
     seat: *mut wlr_seat,
-    cursor_manager: Rc<RefCell<CursorManager>>,
-    keyboard_manager: Rc<RefCell<KeyboardManager>>,
+    cursor_manager: Rc<RefCell<dyn InputDeviceManager>>,
+    keyboard_manager: Rc<RefCell<dyn InputDeviceManager>>,
   ) -> SeatManager {
     println!("SeatManager::init prebind");
 

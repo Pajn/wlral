@@ -1,5 +1,6 @@
-use crate::geometry::{Displacement, Point, Rectangle, Size};
-use crate::window_management_policy::{WindowManagementPolicy, WmManager};
+use crate::geometry::{Displacement, FPoint, Point, Rectangle, Size};
+use crate::input::cursor::CursorManager;
+use crate::window_management_policy::*;
 use std::cell::RefCell;
 use std::cmp::PartialEq;
 use std::pin::Pin;
@@ -54,6 +55,7 @@ impl Surface {
     }
   }
 
+  /// The position and size of the window
   pub fn extents(&self) -> Rectangle {
     unsafe {
       match self.surface_type {
@@ -76,33 +78,62 @@ impl Surface {
     }
   }
 
-  pub fn buffer_top_left(&self) -> Point {
+  /// The position and size of the buffer
+  ///
+  /// When a client draws client-side shadows (liek GTK)
+  /// this is larger than the window extents to also fit
+  /// said shadows.
+  pub fn buffer_extents(&self) -> Rectangle {
     unsafe {
       let surface = &*self.surface();
-      let top_left = Point {
-        x: surface.current.dx,
-        y: surface.current.dy,
-      };
-      top_left + self.top_left()
-    }
-  }
 
-  pub fn buffer_size(&self) -> Size {
-    unsafe {
-      let surface = &*self.surface();
-      Size {
-        width: surface.current.width,
-        height: surface.current.height,
-      }
+      Rectangle {
+        top_left: Point {
+          x: surface.current.dx,
+          y: surface.current.dy,
+        },
+        size: Size {
+          width: surface.current.width,
+          height: surface.current.height,
+        },
+      } + self.top_left()
     }
   }
 
   pub fn move_to(&self, top_left: Point) {
-    *self.top_left.borrow_mut() = top_left;
+    let buffer_displacement = self.extents().top_left() - self.buffer_extents().top_left();
+    *self.top_left.borrow_mut() = top_left - buffer_displacement;
+
+    if let Xwayland(xwayland_surface) = self.surface_type {
+      unsafe {
+        wlr_xwayland_surface_configure(
+          xwayland_surface,
+          top_left.x as i16,
+          top_left.y as i16,
+          (*xwayland_surface).width,
+          (*xwayland_surface).height,
+        );
+      }
+    }
   }
 
-  pub fn is_inside(&self, point: &Point) -> bool {
-    self.extents().contains(&point)
+  pub fn resize(&self, size: Size) {
+    match self.surface_type {
+      Xdg(xdg_surface) => unsafe {
+        if (*xdg_surface).role == wlr_xdg_surface_role_WLR_XDG_SURFACE_ROLE_TOPLEVEL {
+          wlr_xdg_toplevel_set_size(xdg_surface, size.width as u32, size.height as u32);
+        }
+      },
+      Xwayland(xwayland_surface) => unsafe {
+        wlr_xwayland_surface_configure(
+          xwayland_surface,
+          (*xwayland_surface).x,
+          (*xwayland_surface).y,
+          size.width as u16,
+          size.height as u16,
+        );
+      },
+    }
   }
 
   pub fn can_receive_focus(&self) -> bool {
@@ -131,6 +162,7 @@ pub(crate) trait SurfaceEvents {
     &self,
     wm_manager: Rc<RefCell<WmManager>>,
     surface_manager: Rc<RefCell<SurfaceManager>>,
+    cursor_manager: Rc<RefCell<dyn CursorManager>>,
     f: F,
   ) where
     F: Fn(&mut SurfaceEventManager) -> ();
@@ -141,6 +173,7 @@ impl SurfaceEvents for Rc<Surface> {
     &self,
     wm_manager: Rc<RefCell<WmManager>>,
     surface_manager: Rc<RefCell<SurfaceManager>>,
+    cursor_manager: Rc<RefCell<dyn CursorManager>>,
     f: F,
   ) where
     F: Fn(&mut SurfaceEventManager) -> (),
@@ -148,6 +181,7 @@ impl SurfaceEvents for Rc<Surface> {
     let event_handler = SurfaceEventHandler {
       wm_manager,
       surface_manager,
+      cursor_manager,
       surface: Rc::downgrade(self),
     };
     let mut event_manager = SurfaceEventManager::new(event_handler);
@@ -159,6 +193,7 @@ impl SurfaceEvents for Rc<Surface> {
 pub struct SurfaceEventHandler {
   wm_manager: Rc<RefCell<WmManager>>,
   surface_manager: Rc<RefCell<SurfaceManager>>,
+  cursor_manager: Rc<RefCell<dyn CursorManager>>,
   surface: Weak<Surface>,
 }
 
@@ -191,6 +226,30 @@ impl SurfaceEventHandler {
         .destroy_surface(surface.clone());
     }
   }
+
+  fn request_move(&mut self) {
+    if let Some(surface) = self.surface.upgrade() {
+      let event = MoveEvent {
+        surface: surface.clone(),
+        drag_point: self.cursor_manager.borrow().position()
+          - FPoint::from(surface.extents().top_left()).as_displacement(),
+      };
+
+      self.wm_manager.borrow_mut().handle_request_move(event);
+    }
+  }
+
+  fn request_resize(&mut self, event: *mut wlr_xdg_toplevel_resize_event) {
+    if let Some(surface) = self.surface.upgrade() {
+      let event = ResizeEvent {
+        surface: surface.clone(),
+        cursor_position: self.cursor_manager.borrow().position(),
+        edges: WindowEdge::from_bits_truncate(unsafe { (*event).edges }),
+      };
+
+      self.wm_manager.borrow_mut().handle_request_resize(event);
+    }
+  }
 }
 
 wayland_listener!(
@@ -208,6 +267,14 @@ wayland_listener!(
     destroy => destroy_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
       handler.destroy();
+    };
+    request_move => request_move_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.request_move();
+    };
+    request_resize => request_resize_func: |this: &mut SurfaceEventManager, data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.request_resize(data as _);
     };
   ]
 );
@@ -239,7 +306,17 @@ impl SurfaceManager {
       .iter()
       // Reverse as surfaces is from back to front
       .rev()
-      .find(|surface| surface.is_inside(point))
+      .find(|surface| surface.extents().contains(point))
+      .cloned()
+  }
+
+  pub(crate) fn surface_buffer_at(&self, point: &Point) -> Option<Rc<Surface>> {
+    self
+      .surfaces
+      .iter()
+      // Reverse as surfaces is from back to front
+      .rev()
+      .find(|surface| surface.buffer_extents().contains(point))
       .cloned()
   }
 
@@ -258,6 +335,13 @@ impl SurfaceManager {
     self
       .surfaces
       .retain(|surface| *surface != destroyed_surface);
+  }
+
+  /// If the window have keyboard focus
+  pub fn surface_has_focus(&self, surface: &Surface) -> bool {
+    let surface_ptr = surface.surface();
+    let focused_surface = unsafe { (*self.seat).keyboard_state.focused_surface };
+    surface_ptr == focused_surface
   }
 
   /// Gives keyboard focus to the surface
@@ -321,6 +405,7 @@ impl SurfaceManager {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::input::cursor::MockCursorManager;
   use crate::test_util::*;
   use std::ptr;
   use std::rc::Rc;
@@ -328,6 +413,7 @@ mod tests {
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
     let wm_manager = Rc::new(RefCell::new(WmManager::new()));
+    let cursor_manager = Rc::new(RefCell::new(MockCursorManager::default()));
     let surface_manager = Rc::new(RefCell::new(SurfaceManager::init(ptr::null_mut())));
     let surface = surface_manager
       .borrow_mut()
@@ -340,6 +426,7 @@ mod tests {
     surface.bind_events(
       wm_manager,
       surface_manager.clone(),
+      cursor_manager.clone(),
       |event_manager| unsafe {
         event_manager.map(map_signal.ptr());
         event_manager.unmap(unmap_signal.ptr());

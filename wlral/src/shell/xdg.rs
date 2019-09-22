@@ -1,3 +1,4 @@
+use crate::input::cursor::CursorManager;
 use crate::surface::*;
 use crate::window_management_policy::{WindowManagementPolicy, WmManager};
 use std::cell::RefCell;
@@ -9,6 +10,7 @@ use wlroots_sys::*;
 pub struct XdgEventHandler {
   wm_manager: Rc<RefCell<WmManager>>,
   surface_manager: Rc<RefCell<SurfaceManager>>,
+  cursor_manager: Rc<RefCell<dyn CursorManager>>,
 }
 impl XdgEventHandler {
   fn new_surface(&mut self, xdg_surface: *mut wlr_xdg_surface) {
@@ -17,13 +19,21 @@ impl XdgEventHandler {
       .surface_manager
       .borrow_mut()
       .new_surface(SurfaceType::Xdg(xdg_surface));
+
     surface.bind_events(
       self.wm_manager.clone(),
       self.surface_manager.clone(),
+      self.cursor_manager.clone(),
       |event_manager| unsafe {
         event_manager.map(&mut (*xdg_surface).events.map);
         event_manager.unmap(&mut (*xdg_surface).events.unmap);
         event_manager.destroy(&mut (*xdg_surface).events.destroy);
+
+        if (*xdg_surface).role == wlr_xdg_surface_role_WLR_XDG_SURFACE_ROLE_TOPLEVEL {
+          let toplevel = &mut *(*xdg_surface).__bindgen_anon_1.toplevel;
+          event_manager.request_move(&mut toplevel.events.request_move);
+          event_manager.request_resize(&mut toplevel.events.request_resize);
+        }
       },
     );
     self
@@ -56,6 +66,7 @@ impl XdgManager {
   pub(crate) fn init(
     wm_manager: Rc<RefCell<WmManager>>,
     surface_manager: Rc<RefCell<SurfaceManager>>,
+    cursor_manager: Rc<RefCell<dyn CursorManager>>,
     display: *mut wl_display,
   ) -> XdgManager {
     println!("XdgManager::init prebind");
@@ -65,6 +76,7 @@ impl XdgManager {
     let event_handler = Rc::new(RefCell::new(XdgEventHandler {
       wm_manager,
       surface_manager,
+      cursor_manager,
     }));
 
     let mut event_manager = XdgEventManager::new(event_handler.clone());

@@ -29,7 +29,7 @@ pub struct Compositor {
   xwayland_manager: XwaylandManager,
 
   seat_manager: SeatManager,
-  cursor_manager: Rc<RefCell<CursorManager>>,
+  cursor_manager: Rc<RefCell<dyn CursorManager>>,
   keyboard_manager: Rc<RefCell<KeyboardManager>>,
 
   wm_manager: Rc<RefCell<WmManager>>,
@@ -87,16 +87,8 @@ impl Compositor {
         output_layout,
       );
 
-      let xdg_manager = XdgManager::init(wm_manager.clone(), surface_manager.clone(), display);
-      let xwayland_manager = XwaylandManager::init(
-        wm_manager.clone(),
-        surface_manager.clone(),
-        display,
-        compositor,
-      );
-
       let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
-      let cursor_manager = CursorManager::init(
+      let cursor_manager = CursorManagerImpl::init(
         surface_manager.clone(),
         event_filter_manager.clone(),
         output_layout,
@@ -113,6 +105,21 @@ impl Compositor {
         keyboard_manager.clone(),
       );
 
+      let xdg_manager = XdgManager::init(
+        wm_manager.clone(),
+        surface_manager.clone(),
+        cursor_manager.clone(),
+        display,
+      );
+      let xwayland_manager = XwaylandManager::init(
+        wm_manager.clone(),
+        surface_manager.clone(),
+        cursor_manager.clone(),
+        display,
+        compositor,
+      );
+
+      // TODO: fix
       // event_filter_manager
       //   .borrow_mut()
       //   .add_event_filter(Box::new(VtSwitchEventFilter::new(backend)));
@@ -164,6 +171,14 @@ impl Compositor {
     self.output_manager.clone()
   }
 
+  pub fn surface_manager(&self) -> Rc<RefCell<SurfaceManager>> {
+    self.surface_manager.clone()
+  }
+
+  pub fn cursor_manager(&self) -> Rc<RefCell<dyn CursorManager>> {
+    self.cursor_manager.clone()
+  }
+
   pub fn add_event_filter(&mut self, filter: Box<dyn EventFilter>) {
     self
       .event_filter_manager
@@ -173,12 +188,17 @@ impl Compositor {
 
   pub fn run<T>(self, window_management_policy: T)
   where
-    T: 'static + WindowManagementPolicy,
+    T: 'static + WindowManagementPolicy + EventFilter,
   {
+    let window_management_policy = Rc::new(RefCell::new(window_management_policy));
     self
       .wm_manager
       .borrow_mut()
-      .set_policy(window_management_policy);
+      .set_policy(window_management_policy.clone());
+    self
+      .event_filter_manager
+      .borrow_mut()
+      .add_event_filter(Box::new(window_management_policy));
 
     unsafe {
       // if (startup_cmd) {

@@ -31,6 +31,10 @@ impl Point {
   pub const ZERO: Point = Point { x: 0, y: 0 };
 }
 
+impl FPoint {
+  pub const ZERO: FPoint = FPoint { x: 0.0, y: 0.0 };
+}
+
 impl From<Point> for FPoint {
   fn from(point: Point) -> Self {
     FPoint {

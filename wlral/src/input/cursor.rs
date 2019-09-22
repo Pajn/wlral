@@ -1,8 +1,6 @@
 use crate::geometry::FPoint;
 use crate::input::event_filter::{EventFilter, EventFilterManager};
-use crate::input::events::{
-  AbsoluteMotionEvent, AxisEvent, ButtonEvent, InputEvent, MotionEvent, RelativeMotionEvent,
-};
+use crate::input::events::*;
 use crate::input::seat::{Device, InputDeviceManager};
 use crate::surface::SurfaceManager;
 use std::cell::RefCell;
@@ -13,8 +11,19 @@ use std::ptr;
 use std::rc::Rc;
 use wlroots_sys::*;
 
-#[allow(unused)]
-pub struct CursorManager {
+#[cfg(test)]
+use mockall::*;
+
+#[cfg_attr(test, automock)]
+pub trait CursorManager {
+  /// If there are any pointer device (mouse, touchpad, etc.) attached
+  fn has_pointer_device(&self) -> bool;
+
+  /// Get the position of the cursor in global coordinates
+  fn position(&self) -> FPoint;
+}
+
+pub struct CursorManagerImpl {
   surface_manager: Rc<RefCell<SurfaceManager>>,
   event_filter_manager: Rc<RefCell<EventFilterManager>>,
   seat: *mut wlr_seat,
@@ -25,13 +34,28 @@ pub struct CursorManager {
   event_manager: Option<Pin<Box<CursorEventManager>>>,
 }
 
-impl CursorManager {
+impl CursorManager for CursorManagerImpl {
+  fn has_pointer_device(&self) -> bool {
+    !self.pointers.is_empty()
+  }
+
+  fn position(&self) -> FPoint {
+    unsafe {
+      FPoint {
+        x: (*self.cursor).x,
+        y: (*self.cursor).y,
+      }
+    }
+  }
+}
+
+impl CursorManagerImpl {
   pub(crate) fn init(
     surface_manager: Rc<RefCell<SurfaceManager>>,
     event_filter_manager: Rc<RefCell<EventFilterManager>>,
     output_layout: *mut wlr_output_layout,
     seat: *mut wlr_seat,
-  ) -> Rc<RefCell<CursorManager>> {
+  ) -> Rc<RefCell<CursorManagerImpl>> {
     let cursor = unsafe { wlr_cursor_create() };
     unsafe { wlr_cursor_attach_output_layout(cursor, output_layout) };
 
@@ -42,7 +66,7 @@ impl CursorManager {
     let cursor_mgr = unsafe { wlr_xcursor_manager_create(ptr::null(), 24) };
     unsafe { wlr_xcursor_manager_load(cursor_mgr, 1.0) };
 
-    let cursor_manager = Rc::new(RefCell::new(CursorManager {
+    let cursor_manager = Rc::new(RefCell::new(CursorManagerImpl {
       event_filter_manager,
       surface_manager,
       seat,
@@ -71,27 +95,18 @@ impl CursorManager {
     cursor_manager
   }
 
-  pub fn has_pointer_device(&self) -> bool {
-    !self.pointers.is_empty()
-  }
-
-  pub fn position(&self) -> FPoint {
-    unsafe {
-      FPoint {
-        x: (*self.cursor).x,
-        y: (*self.cursor).y,
-      }
-    }
-  }
-
   fn process_motion(&self, event: MotionEvent) {
     let position = self.position();
-    let surface = self.surface_manager.borrow().surface_at(&position.into());
+    let surface = self
+      .surface_manager
+      .borrow()
+      .surface_buffer_at(&position.into());
 
     if let Some(surface) = surface {
       let focus_changed =
         unsafe { (*self.seat).pointer_state.focused_surface != surface.surface() };
-      let surface_position = position - FPoint::from(surface.buffer_top_left()).as_displacement();
+      let surface_position =
+        position - FPoint::from(surface.buffer_extents().top_left()).as_displacement();
 
       // "Enter" the surface if necessary. This lets the client know that the
       // cursor has entered one of its surfaces.
@@ -138,7 +153,7 @@ impl CursorManager {
   }
 }
 
-impl InputDeviceManager for CursorManager {
+impl InputDeviceManager for CursorManagerImpl {
   fn has_any_input_device(&self) -> bool {
     self.has_pointer_device()
   }
@@ -164,18 +179,19 @@ impl InputDeviceManager for CursorManager {
 
 pub trait CursorEventHandler {
   fn request_set_cursor(&self, event: *const wlr_seat_pointer_request_set_cursor_event);
+  fn axis(&self, event: *const wlr_event_pointer_axis);
+  fn button(&self, event: *const wlr_event_pointer_button);
   fn motion(&self, event: *const wlr_event_pointer_motion);
   fn motion_absolute(&self, event: *const wlr_event_pointer_motion_absolute);
-  fn button(&self, event: *const wlr_event_pointer_button);
-  fn axis(&self, event: *const wlr_event_pointer_axis);
   fn frame(&self);
 }
 
-impl CursorEventHandler for CursorManager {
+impl CursorEventHandler for Rc<RefCell<CursorManagerImpl>> {
   fn request_set_cursor(&self, event: *const wlr_seat_pointer_request_set_cursor_event) {
+    let manager = self.borrow();
     unsafe {
       // This event is rasied by the seat when a client provides a cursor image
-      let focused_client = (*self.seat).pointer_state.focused_client;
+      let focused_client = (*manager.seat).pointer_state.focused_client;
       // This can be sent by any client, so we check to make sure this one is
       // actually has pointer focus first.
       if focused_client == (*event).seat_client {
@@ -184,10 +200,72 @@ impl CursorEventHandler for CursorManager {
         // on the output that it's currently on and continue to do so as the
         // cursor moves between outputs.
         wlr_cursor_set_surface(
-          self.cursor,
+          manager.cursor,
           (*event).surface,
           (*event).hotspot_x,
           (*event).hotspot_y,
+        );
+      }
+    }
+  }
+
+  fn axis(&self, event: *const wlr_event_pointer_axis) {
+    let event = unsafe { AxisEvent::from_ptr(self.clone(), event) };
+
+    let handled = self
+      .borrow()
+      .event_filter_manager
+      .borrow_mut()
+      .handle_pointer_axis_event(&event);
+
+    if !handled {
+      unsafe {
+        wlr_seat_pointer_notify_axis(
+          self.borrow().seat,
+          event.time_msec(),
+          event.orientation(),
+          event.delta(),
+          event.delta_discrete(),
+          event.source(),
+        );
+      }
+    }
+  }
+
+  fn button(&self, event: *const wlr_event_pointer_button) {
+    let event = unsafe { ButtonEvent::from_ptr(self.clone(), event) };
+
+    let handled = self
+      .borrow()
+      .event_filter_manager
+      .borrow_mut()
+      .handle_pointer_button_event(&event);
+
+    if !handled {
+      if event.state() == ButtonState::Pressed {
+        let surface = self
+          .borrow()
+          .surface_manager
+          .borrow()
+          .surface_buffer_at(&self.borrow().position().into());
+
+        if let Some(surface) = surface {
+          if surface.can_receive_focus() {
+            self
+              .borrow()
+              .surface_manager
+              .borrow_mut()
+              .focus_surface(surface);
+          }
+        }
+      }
+
+      unsafe {
+        wlr_seat_pointer_notify_button(
+          self.borrow().seat,
+          event.time_msec(),
+          event.button(),
+          event.state().as_raw(),
         );
       }
     }
@@ -202,18 +280,18 @@ impl CursorEventHandler for CursorManager {
   // generated the event. You can pass NULL for the device if you want to move
   // the cursor around without any input.
   fn motion(&self, event: *const wlr_event_pointer_motion) {
-    let event = unsafe { RelativeMotionEvent::from_ptr(event) };
+    let event = unsafe { RelativeMotionEvent::from_ptr(self.clone(), event) };
 
     let delta = event.delta();
     unsafe {
       wlr_cursor_move(
-        self.cursor,
+        self.borrow().cursor,
         event.raw_device(),
         delta.delta_x(),
         delta.delta_y(),
       );
-      self.process_motion(MotionEvent::Relative(event));
     }
+    self.borrow().process_motion(MotionEvent::Relative(event));
   }
 
   // This event is forwarded by the cursor when a pointer emits an absolute
@@ -223,63 +301,13 @@ impl CursorEventHandler for CursorManager {
   // so we have to warp the mouse there. There is also some hardware which
   // emits these events.
   fn motion_absolute(&self, event: *const wlr_event_pointer_motion_absolute) {
-    let event = unsafe { AbsoluteMotionEvent::from_ptr(event) };
+    let event = unsafe { AbsoluteMotionEvent::from_ptr(self.clone(), event) };
 
     let pos = event.pos();
     unsafe {
-      wlr_cursor_warp_absolute(self.cursor, event.raw_device(), pos.x(), pos.y());
-      self.process_motion(MotionEvent::Absolute(event));
+      wlr_cursor_warp_absolute(self.borrow().cursor, event.raw_device(), pos.x(), pos.y());
     }
-  }
-
-  fn button(&self, event: *const wlr_event_pointer_button) {
-    let event = unsafe { ButtonEvent::from_ptr(event) };
-
-    let handled = self
-      .event_filter_manager
-      .borrow_mut()
-      .handle_pointer_button_event(&event);
-
-    if !handled {
-      if event.state() == wlr_button_state_WLR_BUTTON_PRESSED {
-        let surface = self
-          .surface_manager
-          .borrow()
-          .surface_at(&self.position().into());
-
-        if let Some(surface) = surface {
-          if surface.can_receive_focus() {
-            self.surface_manager.borrow_mut().focus_surface(surface);
-          }
-        }
-      }
-
-      unsafe {
-        wlr_seat_pointer_notify_button(self.seat, event.time_msec(), event.button(), event.state());
-      }
-    }
-  }
-
-  fn axis(&self, event: *const wlr_event_pointer_axis) {
-    let event = unsafe { AxisEvent::from_ptr(event) };
-
-    let handled = self
-      .event_filter_manager
-      .borrow_mut()
-      .handle_pointer_axis_event(&event);
-
-    if !handled {
-      unsafe {
-        wlr_seat_pointer_notify_axis(
-          self.seat,
-          event.time_msec(),
-          event.orientation(),
-          event.delta(),
-          event.delta_discrete(),
-          event.source(),
-        );
-      }
-    }
+    self.borrow().process_motion(MotionEvent::Absolute(event));
   }
 
   fn frame(&self) {
@@ -289,38 +317,38 @@ impl CursorEventHandler for CursorManager {
     // same time, in which case a frame event won't be sent in between.
     // Notify the client with pointer focus of the frame event.
     unsafe {
-      wlr_seat_pointer_notify_frame(self.seat);
+      wlr_seat_pointer_notify_frame(self.borrow().seat);
     }
   }
 }
 
 wayland_listener!(
   pub CursorEventManager,
-  Rc<RefCell<CursorManager>>,
+  Rc<RefCell<CursorManagerImpl>>,
   [
     request_set_cursor => request_set_cursor_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
-      handler.borrow().request_set_cursor(data as _)
+      handler.request_set_cursor(data as _)
     };
     motion => motion_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
-      handler.borrow().motion(data as _)
+      handler.motion(data as _)
     };
     motion_absolute => motion_absolute_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
-      handler.borrow().motion_absolute(data as _)
+      handler.motion_absolute(data as _)
     };
     button => button_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
-      handler.borrow().button(data as _)
+      handler.button(data as _)
     };
     axis => axis_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
-      handler.borrow().axis(data as _)
+      handler.axis(data as _)
     };
     frame => frame_func: |this: &mut CursorEventManager, _data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
-      handler.borrow().frame()
+      handler.frame()
     };
   ]
 );
@@ -351,7 +379,7 @@ mod tests {
   fn it_drops_and_cleans_up_on_destroy() {
     let surface_manager = Rc::new(RefCell::new(SurfaceManager::init(ptr::null_mut())));
     let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
-    let cursor_manager = Rc::new(RefCell::new(CursorManager {
+    let cursor_manager = Rc::new(RefCell::new(CursorManagerImpl {
       surface_manager,
       event_filter_manager,
       seat: ptr::null_mut(),

@@ -1,5 +1,8 @@
 use crate::geometry::{FDisplacement, FPoint};
+use crate::input::cursor::CursorManager;
 use crate::input::keyboard::Keyboard;
+use std::cell::RefCell;
+use std::rc::Rc;
 use wlroots_sys::*;
 use xkbcommon::xkb;
 
@@ -22,16 +25,27 @@ pub trait InputEvent {
   fn raw_device(&self) -> *mut wlr_input_device;
 }
 
+pub trait CursorEvent {
+  /// Get the position of the cursor in global coordinates
+  fn position(&self) -> FPoint;
+}
+
 /// Event that triggers when the pointer device scrolls (e.g using a wheel
 /// or in the case of a touchpad when you use two fingers to scroll)
-#[derive(Debug)]
 pub struct AxisEvent {
+  cursor_manager: Rc<RefCell<dyn CursorManager>>,
   event: *const wlr_event_pointer_axis,
 }
 
 impl AxisEvent {
-  pub(crate) unsafe fn from_ptr(event: *const wlr_event_pointer_axis) -> Self {
-    AxisEvent { event }
+  pub(crate) unsafe fn from_ptr(
+    cursor_manager: Rc<RefCell<dyn CursorManager>>,
+    event: *const wlr_event_pointer_axis,
+  ) -> Self {
+    AxisEvent {
+      cursor_manager,
+      event,
+    }
   }
 
   /// Get the raw pointer to this event
@@ -69,16 +83,51 @@ impl InputEvent for AxisEvent {
   }
 }
 
+impl CursorEvent for AxisEvent {
+  fn position(&self) -> FPoint {
+    self.cursor_manager.borrow().position()
+  }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ButtonState {
+  Released,
+  Pressed,
+}
+
+impl ButtonState {
+  pub fn from_raw(state: wlr_button_state) -> ButtonState {
+    if state == wlr_button_state_WLR_BUTTON_RELEASED {
+      ButtonState::Released
+    } else {
+      ButtonState::Pressed
+    }
+  }
+
+  pub fn as_raw(&self) -> wlr_button_state {
+    match self {
+      ButtonState::Released => wlr_button_state_WLR_BUTTON_RELEASED,
+      ButtonState::Pressed => wlr_button_state_WLR_BUTTON_PRESSED,
+    }
+  }
+}
+
 /// Event that triggers when a button is pressed (e.g left click, right click,
 /// a gaming mouse button, etc.)
-#[derive(Debug)]
 pub struct ButtonEvent {
+  cursor_manager: Rc<RefCell<dyn CursorManager>>,
   event: *const wlr_event_pointer_button,
 }
 
 impl ButtonEvent {
-  pub(crate) unsafe fn from_ptr(event: *const wlr_event_pointer_button) -> Self {
-    ButtonEvent { event }
+  pub(crate) unsafe fn from_ptr(
+    cursor_manager: Rc<RefCell<dyn CursorManager>>,
+    event: *const wlr_event_pointer_button,
+  ) -> Self {
+    ButtonEvent {
+      cursor_manager,
+      event,
+    }
   }
 
   /// Get the raw pointer to this event
@@ -87,8 +136,8 @@ impl ButtonEvent {
   }
 
   /// Get the state of the button (e.g pressed or released)
-  pub fn state(&self) -> wlr_button_state {
-    unsafe { (*self.event).state }
+  pub fn state(&self) -> ButtonState {
+    ButtonState::from_raw(unsafe { (*self.event).state })
   }
 
   /// Get the value of the button pressed. This will generally be an
@@ -112,18 +161,16 @@ impl InputEvent for ButtonEvent {
   }
 }
 
+impl CursorEvent for ButtonEvent {
+  fn position(&self) -> FPoint {
+    self.cursor_manager.borrow().position()
+  }
+}
+
 /// Event that triggers when the pointer moves
-#[derive(Debug)]
 pub enum MotionEvent {
   Relative(RelativeMotionEvent),
   Absolute(AbsoluteMotionEvent),
-}
-
-impl MotionEvent {
-  /// Get the absolute position of the pointer
-  pub fn pos(&self) -> FPoint {
-    FPoint { x: 0.0, y: 0.0 }
-  }
 }
 
 impl InputEvent for MotionEvent {
@@ -142,14 +189,29 @@ impl InputEvent for MotionEvent {
   }
 }
 
-#[derive(Debug)]
+impl CursorEvent for MotionEvent {
+  fn position(&self) -> FPoint {
+    match self {
+      MotionEvent::Relative(event) => event.position(),
+      MotionEvent::Absolute(event) => event.position(),
+    }
+  }
+}
+
 pub struct RelativeMotionEvent {
+  cursor_manager: Rc<RefCell<dyn CursorManager>>,
   event: *const wlr_event_pointer_motion,
 }
 
 impl RelativeMotionEvent {
-  pub(crate) unsafe fn from_ptr(event: *const wlr_event_pointer_motion) -> Self {
-    RelativeMotionEvent { event }
+  pub(crate) unsafe fn from_ptr(
+    cursor_manager: Rc<RefCell<dyn CursorManager>>,
+    event: *const wlr_event_pointer_motion,
+  ) -> Self {
+    RelativeMotionEvent {
+      cursor_manager,
+      event,
+    }
   }
 
   /// Get the raw pointer to this event
@@ -182,14 +244,26 @@ impl InputEvent for RelativeMotionEvent {
   }
 }
 
-#[derive(Debug)]
+impl CursorEvent for RelativeMotionEvent {
+  fn position(&self) -> FPoint {
+    self.cursor_manager.borrow().position()
+  }
+}
+
 pub struct AbsoluteMotionEvent {
+  cursor_manager: Rc<RefCell<dyn CursorManager>>,
   event: *const wlr_event_pointer_motion_absolute,
 }
 
 impl AbsoluteMotionEvent {
-  pub(crate) unsafe fn from_ptr(event: *const wlr_event_pointer_motion_absolute) -> Self {
-    AbsoluteMotionEvent { event }
+  pub(crate) unsafe fn from_ptr(
+    cursor_manager: Rc<RefCell<dyn CursorManager>>,
+    event: *const wlr_event_pointer_motion_absolute,
+  ) -> Self {
+    AbsoluteMotionEvent {
+      cursor_manager,
+      event,
+    }
   }
 
   /// Get the raw pointer to this event
@@ -215,6 +289,12 @@ impl InputEvent for AbsoluteMotionEvent {
 
   fn time_msec(&self) -> u32 {
     unsafe { (*self.event).time_msec }
+  }
+}
+
+impl CursorEvent for AbsoluteMotionEvent {
+  fn position(&self) -> FPoint {
+    self.cursor_manager.borrow().position()
   }
 }
 

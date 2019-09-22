@@ -1,3 +1,4 @@
+use crate::input::cursor::CursorManager;
 use crate::surface::*;
 use crate::window_management_policy::{WindowManagementPolicy, WmManager};
 use std::cell::RefCell;
@@ -11,6 +12,7 @@ use wlroots_sys::*;
 pub struct XwaylandEventHandler {
   wm_manager: Rc<RefCell<WmManager>>,
   surface_manager: Rc<RefCell<SurfaceManager>>,
+  cursor_manager: Rc<RefCell<dyn CursorManager>>,
 }
 impl XwaylandEventHandler {
   fn new_surface(&mut self, xwayland_surface: *mut wlr_xwayland_surface) {
@@ -19,13 +21,17 @@ impl XwaylandEventHandler {
       .surface_manager
       .borrow_mut()
       .new_surface(SurfaceType::Xwayland(xwayland_surface));
+
     surface.bind_events(
       self.wm_manager.clone(),
       self.surface_manager.clone(),
+      self.cursor_manager.clone(),
       |event_manager| unsafe {
         event_manager.map(&mut (*xwayland_surface).events.map);
         event_manager.unmap(&mut (*xwayland_surface).events.unmap);
         event_manager.destroy(&mut (*xwayland_surface).events.destroy);
+        event_manager.request_move(&mut (*xwayland_surface).events.request_move);
+        event_manager.request_resize(&mut (*xwayland_surface).events.request_resize);
       },
     );
     self
@@ -58,6 +64,7 @@ impl XwaylandManager {
   pub(crate) fn init(
     wm_manager: Rc<RefCell<WmManager>>,
     surface_manager: Rc<RefCell<SurfaceManager>>,
+    cursor_manager: Rc<RefCell<dyn CursorManager>>,
     display: *mut wl_display,
     compositor: *mut wlr_compositor,
   ) -> XwaylandManager {
@@ -76,6 +83,7 @@ impl XwaylandManager {
     let event_handler = Rc::new(RefCell::new(XwaylandEventHandler {
       wm_manager,
       surface_manager,
+      cursor_manager,
     }));
 
     let mut event_manager = XwaylandEventManager::new(event_handler.clone());
