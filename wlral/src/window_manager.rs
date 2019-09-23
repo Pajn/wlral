@@ -53,7 +53,14 @@ impl WindowManager {
       top_left: RefCell::new(Point::ZERO),
       event_manager: RefCell::new(None),
     });
-    self.windows.insert(0, window.clone());
+    // If the window can receive focus, add it to the back so that
+    // the window management policy can choose if it want to focus the
+    // window
+    if window.can_receive_focus() {
+      self.windows.insert(0, window.clone());
+    } else {
+      self.windows.push(window.clone());
+    }
     window
   }
 
