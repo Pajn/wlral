@@ -11,6 +11,8 @@ use std::rc::{Rc, Weak};
 use wlroots_sys::*;
 
 pub struct Window {
+  pub(crate) window_manager: Rc<RefCell<WindowManager>>,
+
   pub(crate) surface: Surface,
   pub(crate) mapped: RefCell<bool>,
   pub(crate) top_left: RefCell<Point>,
@@ -28,7 +30,24 @@ impl Window {
   }
 
   fn position_displacement(&self) -> Displacement {
-    self.top_left.borrow().as_displacement() + self.surface.parent_displacement()
+    let parent_displacement = self
+      .surface
+      .parent_wlr_surface()
+      .and_then(|parent_wlr_surface| {
+        self
+          .window_manager
+          .borrow()
+          .windows()
+          .iter()
+          .find(|w| w.wlr_surface() == parent_wlr_surface)
+          .cloned()
+      })
+      .map(|w| w.buffer_extents().top_left().as_displacement())
+      .unwrap_or_default();
+
+    self.top_left.borrow().as_displacement()
+      + parent_displacement
+      + self.surface.parent_displacement()
       - self.surface.buffer_displacement()
   }
 

@@ -4,7 +4,7 @@ use crate::output_manager::OutputManager;
 use crate::surface::{Surface, SurfaceExt};
 use crate::window::WindowEvents;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
-use crate::window_manager::WindowManager;
+use crate::window_manager::{WindowManager, WindowManagerExt};
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -51,6 +51,13 @@ impl XdgSurface {
 impl SurfaceExt for XdgSurface {
   fn wlr_surface(&self) -> *mut wlr_surface {
     unsafe { (*self.0).surface }
+  }
+
+  fn parent_wlr_surface(&self) -> Option<*mut wlr_surface> {
+    match self.get_type() {
+      Popup(popup) => unsafe { Some((*popup).parent) },
+      _ => None,
+    }
   }
 
   fn buffer_displacement(&self) -> Displacement {
@@ -176,7 +183,6 @@ impl XdgEventHandler {
     println!("new_surface");
     let surface = self
       .window_manager
-      .borrow_mut()
       .new_window(Surface::Xdg(XdgSurface(xdg_surface)));
 
     surface.bind_events(

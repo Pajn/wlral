@@ -4,7 +4,7 @@ use crate::output_manager::OutputManager;
 use crate::surface::{Surface, SurfaceExt};
 use crate::window::WindowEvents;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
-use crate::window_manager::WindowManager;
+use crate::window_manager::{WindowManager, WindowManagerExt};
 use std::cell::RefCell;
 use std::env;
 use std::ffi::CStr;
@@ -32,6 +32,10 @@ impl XwaylandSurface {
 impl SurfaceExt for XwaylandSurface {
   fn wlr_surface(&self) -> *mut wlr_surface {
     unsafe { (*self.0).surface }
+  }
+
+  fn parent_wlr_surface(&self) -> Option<*mut wlr_surface> {
+    None
   }
 
   fn buffer_displacement(&self) -> Displacement {
@@ -127,7 +131,6 @@ impl XwaylandEventHandler {
     println!("new_surface");
     let surface = self
       .window_manager
-      .borrow_mut()
       .new_window(Surface::Xwayland(XwaylandSurface(xwayland_surface)));
 
     surface.bind_events(

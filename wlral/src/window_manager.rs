@@ -46,26 +46,12 @@ impl WindowManager {
       .cloned()
   }
 
-  pub fn new_window(&mut self, surface: Surface) -> Rc<Window> {
-    let window = Rc::new(Window {
-      surface,
-      mapped: RefCell::new(false),
-      top_left: RefCell::new(Point::ZERO),
-      event_manager: RefCell::new(None),
-    });
-    // If the window can receive focus, add it to the back so that
-    // the window management policy can choose if it want to focus the
-    // window
-    if window.can_receive_focus() {
-      self.windows.insert(0, window.clone());
-    } else {
-      self.windows.push(window.clone());
-    }
-    window
+  pub(crate) fn destroy_window(&mut self, destroyed_window: Rc<Window>) {
+    self.windows.retain(|window| *window != destroyed_window);
   }
 
-  pub fn destroy_window(&mut self, destroyed_window: Rc<Window>) {
-    self.windows.retain(|window| *window != destroyed_window);
+  pub fn windows(&self) -> &Vec<Rc<Window>> {
+    &self.windows
   }
 
   /// If the window have keyboard focus
@@ -119,6 +105,31 @@ impl WindowManager {
   }
 }
 
+pub(crate) trait WindowManagerExt {
+  fn new_window(&self, surface: Surface) -> Rc<Window>;
+}
+
+impl WindowManagerExt for Rc<RefCell<WindowManager>> {
+  fn new_window(&self, surface: Surface) -> Rc<Window> {
+    let window = Rc::new(Window {
+      window_manager: self.clone(),
+      surface,
+      mapped: RefCell::new(false),
+      top_left: RefCell::new(Point::ZERO),
+      event_manager: RefCell::new(None),
+    });
+    // If the window can receive focus, add it to the back so that
+    // the window management policy can choose if it want to focus the
+    // window
+    if window.can_receive_focus() {
+      self.borrow_mut().windows.insert(0, window.clone());
+    } else {
+      self.borrow_mut().windows.push(window.clone());
+    }
+    window
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -135,7 +146,7 @@ mod tests {
     let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
     let cursor_manager = Rc::new(RefCell::new(MockCursorManager::default()));
     let window_manager = Rc::new(RefCell::new(WindowManager::init(ptr::null_mut())));
-    let window = window_manager.borrow_mut().new_window(Surface::Null);
+    let window = window_manager.new_window(Surface::Null);
 
     let map_signal = WlSignal::new();
     let unmap_signal = WlSignal::new();

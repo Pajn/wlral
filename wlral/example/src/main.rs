@@ -41,18 +41,20 @@ impl WindowManagementPolicy for FloatingWindowManager {
   fn handle_window_ready(&mut self, window: Rc<Window>) {
     let output = self.output_for_window(&window);
 
-    // Center the new window
-    if let Some(output) = output {
-      window.move_to(
-        output.top_left() + ((output.size() - window.extents().size()) / 2.0).as_displacement(),
-      );
-    }
+    if window.can_receive_focus() {
+      // Center the new window
+      if let Some(output) = output {
+        window.move_to(
+          output.top_left() + ((output.size() - window.extents().size()) / 2.0).as_displacement(),
+        );
+      }
 
-    // Focus the new window
-    self
-      .window_manager
-      .borrow_mut()
-      .focus_window(window.clone());
+      // Focus the new window
+      self
+        .window_manager
+        .borrow_mut()
+        .focus_window(window.clone());
+    }
   }
 
   fn handle_request_move(&mut self, request: MoveRequest) {

@@ -27,6 +27,7 @@ use Surface::*;
 
 pub(crate) trait SurfaceExt {
   fn wlr_surface(&self) -> *mut wlr_surface;
+  fn parent_wlr_surface(&self) -> Option<*mut wlr_surface>;
   fn buffer_displacement(&self) -> Displacement;
   fn parent_displacement(&self) -> Displacement;
 
@@ -53,6 +54,15 @@ impl SurfaceExt for Surface {
       Xwayland(surface) => surface.wlr_surface(),
       #[cfg(test)]
       Null => std::ptr::null_mut(),
+    }
+  }
+
+  fn parent_wlr_surface(&self) -> Option<*mut wlr_surface> {
+    match self {
+      Xdg(surface) => surface.parent_wlr_surface(),
+      Xwayland(surface) => surface.parent_wlr_surface(),
+      #[cfg(test)]
+      Null => None,
     }
   }
 
