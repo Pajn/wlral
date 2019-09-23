@@ -5,6 +5,7 @@ use crate::surface::{Surface, SurfaceExt};
 use crate::window::WindowEvents;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::{WindowManager, WindowManagerExt};
+use log::{debug, info};
 use std::cell::RefCell;
 use std::env;
 use std::ffi::CStr;
@@ -134,7 +135,7 @@ pub struct XwaylandEventHandler {
 }
 impl XwaylandEventHandler {
   fn new_surface(&mut self, xwayland_surface: *mut wlr_xwayland_surface) {
-    println!("new_surface");
+    debug!("new_surface");
     let surface = self
       .window_manager
       .new_window(Surface::Xwayland(XwaylandSurface(xwayland_surface)));
@@ -191,7 +192,7 @@ impl XwaylandManager {
     display: *mut wl_display,
     compositor: *mut wlr_compositor,
   ) -> XwaylandManager {
-    println!("XwaylandManager::init prebind");
+    debug!("XwaylandManager::init");
 
     let xwayland = unsafe { &mut *wlr_xwayland_create(display, compositor, true) };
 
@@ -201,7 +202,7 @@ impl XwaylandManager {
         .into_owned()
     };
     env::set_var("_DISPLAY", socket_name.clone());
-    println!("{}", socket_name.clone());
+    info!("DISPLAY={}", socket_name.clone());
 
     let event_handler = Rc::new(RefCell::new(XwaylandEventHandler {
       wm_policy_manager,
@@ -214,8 +215,6 @@ impl XwaylandManager {
     unsafe {
       event_manager.new_surface(&mut xwayland.events.new_surface);
     }
-
-    println!("XwaylandManager::init postbind");
 
     XwaylandManager {
       xwayland,

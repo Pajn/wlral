@@ -218,6 +218,8 @@ impl EventFilter for FloatingWindowManager {
 }
 
 fn main() {
+  env_logger::init();
+
   let compositor = Compositor::init().expect("Could not initialize compositor");
   let window_manager = FloatingWindowManager {
     output_manager: compositor.output_manager(),

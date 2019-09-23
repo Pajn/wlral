@@ -1,6 +1,7 @@
 use crate::input::event_filter::{EventFilter, EventFilterManager};
 use crate::input::events::{InputEvent, KeyboardEvent};
 use crate::input::seat::{Device, DeviceType, InputDeviceManager};
+use log::debug;
 use std::cell::RefCell;
 use std::ops::Deref;
 use std::pin::Pin;
@@ -60,7 +61,7 @@ impl Keyboard {
       event_manager: RefCell::new(None),
     });
 
-    println!("Keyboard::init prebind");
+    debug!("Keyboard::init");
 
     let mut event_manager = KeyboardEventManager::new(Rc::downgrade(&keyboard));
     unsafe {
@@ -68,8 +69,6 @@ impl Keyboard {
       event_manager.key(&mut (*keyboard_ptr).events.key);
     }
     *keyboard.event_manager.borrow_mut() = Some(event_manager);
-
-    println!("Keyboard::init postbind");
 
     keyboard
   }

@@ -1,6 +1,7 @@
 use crate::geometry::Point;
 use crate::surface::{Surface, SurfaceExt};
 use crate::window::Window;
+use log::warn;
 use std::cell::RefCell;
 use std::rc::Rc;
 use wlroots_sys::*;
@@ -74,7 +75,7 @@ impl WindowManager {
   /// Gives keyboard focus to the window
   pub fn focus_window(&mut self, window: Rc<Window>) {
     if !window.can_receive_focus() {
-      eprintln!("Window can not receive focus");
+      warn!("Window can not receive focus");
       return;
     }
     let wlr_surface = window.wlr_surface();

@@ -3,6 +3,7 @@ use crate::input::event_filter::{EventFilter, EventFilterManager};
 use crate::input::events::*;
 use crate::input::seat::{Device, InputDeviceManager};
 use crate::window_manager::WindowManager;
+use log::debug;
 use std::cell::RefCell;
 use std::ffi::CString;
 use std::ops::Deref;
@@ -77,7 +78,7 @@ impl CursorManagerImpl {
       event_manager: None,
     }));
 
-    println!("CursorManager::init prebind");
+    debug!("CursorManager::init");
 
     let mut event_manager = CursorEventManager::new(cursor_manager.clone());
     unsafe {
@@ -89,8 +90,6 @@ impl CursorManagerImpl {
       event_manager.frame(&mut (*cursor).events.frame);
     }
     cursor_manager.borrow_mut().event_manager = Some(event_manager);
-
-    println!("CursorManager::init postbind");
 
     cursor_manager
   }

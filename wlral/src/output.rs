@@ -3,6 +3,7 @@ use crate::output_manager::OutputManagerImpl;
 use crate::window::Window;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::WindowManager;
+use log::debug;
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::ptr;
@@ -196,7 +197,7 @@ impl OutputEventHandler for Rc<Output> {
   }
 
   fn destroy(self) {
-    println!("destroy output");
+    debug!("destroy output");
     self
       .wm_policy_manager
       .borrow_mut()

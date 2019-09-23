@@ -1,3 +1,4 @@
+use log::debug;
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::{Rc, Weak};
@@ -188,7 +189,7 @@ impl SeatManager {
     cursor_manager: Rc<RefCell<dyn InputDeviceManager>>,
     keyboard_manager: Rc<RefCell<dyn InputDeviceManager>>,
   ) -> SeatManager {
-    println!("SeatManager::init prebind");
+    debug!("SeatManager::init");
 
     let event_handler = Rc::new(SeatEventHandler {
       seat,
@@ -201,8 +202,6 @@ impl SeatManager {
     unsafe {
       event_manager.new_input(&mut (*backend).events.new_input);
     }
-
-    println!("SeatManager::init postbind");
 
     SeatManager {
       seat,

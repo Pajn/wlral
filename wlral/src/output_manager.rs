@@ -1,6 +1,7 @@
 use crate::output::{Output, OutputEventManager};
 use crate::window_management_policy::WmPolicyManager;
 use crate::window_manager::WindowManager;
+use log::debug;
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -76,7 +77,7 @@ impl OutputManagerImpl {
       event_manager: None,
     }));
 
-    println!("OutputManager::init prebind");
+    debug!("OutputManager::init");
 
     let mut event_manager = OutputManagerEventManager::new(output_manager.clone());
 
@@ -86,13 +87,11 @@ impl OutputManagerImpl {
 
     output_manager.borrow_mut().event_manager = Some(event_manager);
 
-    println!("OutputManager::init postbind");
-
     output_manager
   }
 
   fn new_output(&mut self, output: Output) {
-    println!("new_output");
+    debug!("new_output");
 
     output.use_preferred_mode();
 

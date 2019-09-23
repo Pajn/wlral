@@ -5,6 +5,7 @@ use crate::surface::{Surface, SurfaceExt};
 use crate::window::WindowEvents;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::{WindowManager, WindowManagerExt};
+use log::debug;
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -192,7 +193,7 @@ pub struct XdgEventHandler {
 }
 impl XdgEventHandler {
   fn new_surface(&mut self, xdg_surface: *mut wlr_xdg_surface) {
-    println!("new_surface");
+    debug!("new_surface");
     let surface = self
       .window_manager
       .new_window(Surface::Xdg(XdgSurface(xdg_surface)));
@@ -252,7 +253,7 @@ impl XdgManager {
     cursor_manager: Rc<RefCell<dyn CursorManager>>,
     display: *mut wl_display,
   ) -> XdgManager {
-    println!("XdgManager::init prebind");
+    debug!("XdgManager::init");
 
     let xdg_shell = unsafe { wlr_xdg_shell_create(display) };
 
@@ -267,8 +268,6 @@ impl XdgManager {
     unsafe {
       event_manager.new_surface(&mut (*xdg_shell).events.new_surface);
     }
-
-    println!("XdgManager::init postbind");
 
     XdgManager {
       xdg_shell,
