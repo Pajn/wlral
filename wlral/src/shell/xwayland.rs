@@ -1,8 +1,10 @@
 use crate::geometry::*;
 use crate::input::cursor::CursorManager;
 use crate::output_manager::OutputManager;
-use crate::surface::{Surface, SurfaceExt};
-use crate::window::WindowEvents;
+use crate::surface::{Surface, SurfaceEventManager, SurfaceExt};
+use crate::window::{
+  WindowEventHandler, WindowFullscreenEvent, WindowMaximizeEvent, WindowResizeEvent,
+};
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::{WindowManager, WindowManagerExt};
 use log::{debug, info};
@@ -127,6 +129,49 @@ impl SurfaceExt for XwaylandSurface {
   }
 }
 
+wayland_listener!(
+  pub XwaylandSurfaceEventManager,
+  WindowEventHandler,
+  [
+    map => map_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.map()
+    };
+    unmap => unmap_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.unmap()
+    };
+    destroy => destroy_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.destroy();
+    };
+    request_move => request_move_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.request_move();
+    };
+    request_resize => request_resize_func: |this: &mut XwaylandSurfaceEventManager, data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      let event: *mut wlr_xwayland_resize_event = data as _;
+      handler.request_resize(WindowResizeEvent {
+        edges: (*event).edges,
+      });
+    };
+    request_maximize => request_maximize_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.request_maximize(WindowMaximizeEvent {
+        maximize: true,
+      });
+    };
+    request_fullscreen => request_fullscreen_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.request_fullscreen(WindowFullscreenEvent {
+        fullscreen: true,
+        output: None,
+      });
+    };
+  ]
+);
+
 pub struct XwaylandEventHandler {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
   output_manager: Rc<RefCell<dyn OutputManager>>,
@@ -136,31 +181,36 @@ pub struct XwaylandEventHandler {
 impl XwaylandEventHandler {
   fn new_surface(&mut self, xwayland_surface: *mut wlr_xwayland_surface) {
     debug!("new_surface");
-    let surface = self
+    let window = self
       .window_manager
       .new_window(Surface::Xwayland(XwaylandSurface(xwayland_surface)));
 
-    surface.bind_events(
-      self.wm_policy_manager.clone(),
-      self.output_manager.clone(),
-      self.window_manager.clone(),
-      self.cursor_manager.clone(),
-      |event_manager| unsafe {
-        event_manager.map(&mut (*xwayland_surface).events.map);
-        event_manager.unmap(&mut (*xwayland_surface).events.unmap);
-        event_manager.destroy(&mut (*xwayland_surface).events.destroy);
-        event_manager.request_move(&mut (*xwayland_surface).events.request_move);
-        event_manager.request_resize(&mut (*xwayland_surface).events.request_resize);
-        event_manager.request_maximize(&mut (*xwayland_surface).events.request_maximize);
-        event_manager.request_fullscreen(&mut (*xwayland_surface).events.request_fullscreen);
-        // TODO: minimize?
-      },
-    );
+    let mut event_manager = XwaylandSurfaceEventManager::new(WindowEventHandler {
+      wm_policy_manager: self.wm_policy_manager.clone(),
+      output_manager: self.output_manager.clone(),
+      window_manager: self.window_manager.clone(),
+      cursor_manager: self.cursor_manager.clone(),
+      window: Rc::downgrade(&window),
+    });
+
+    unsafe {
+      let xwayland_surface = &mut *xwayland_surface;
+      event_manager.map(&mut xwayland_surface.events.map);
+      event_manager.unmap(&mut xwayland_surface.events.unmap);
+      event_manager.destroy(&mut xwayland_surface.events.destroy);
+      event_manager.request_move(&mut xwayland_surface.events.request_move);
+      event_manager.request_resize(&mut xwayland_surface.events.request_resize);
+      event_manager.request_maximize(&mut xwayland_surface.events.request_maximize);
+      event_manager.request_fullscreen(&mut xwayland_surface.events.request_fullscreen);
+      // TODO: minimize?
+    }
+
+    *window.event_manager.borrow_mut() = Some(SurfaceEventManager::Xwayland(event_manager));
 
     self
       .wm_policy_manager
       .borrow_mut()
-      .advise_new_window(surface.clone());
+      .advise_new_window(window);
   }
 }
 

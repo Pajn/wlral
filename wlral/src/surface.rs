@@ -1,6 +1,7 @@
 use crate::geometry::*;
-use crate::shell::xdg::XdgSurface;
-use crate::shell::xwayland::XwaylandSurface;
+use crate::shell::xdg::{XdgSurface, XdgSurfaceEventManager};
+use crate::shell::xwayland::{XwaylandSurface, XwaylandSurfaceEventManager};
+use std::pin::Pin;
 use wlroots_sys::*;
 
 #[derive(PartialEq, Eq)]
@@ -195,4 +196,9 @@ impl SurfaceExt for Surface {
       Null => {}
     }
   }
+}
+
+pub enum SurfaceEventManager {
+  Xdg(Pin<Box<XdgSurfaceEventManager>>),
+  Xwayland(Pin<Box<XwaylandSurfaceEventManager>>),
 }

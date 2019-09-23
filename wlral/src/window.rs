@@ -1,12 +1,11 @@
 use crate::geometry::{Displacement, FPoint, Point, Rectangle, Size};
 use crate::input::cursor::CursorManager;
 use crate::output_manager::OutputManager;
-use crate::surface::{Surface, SurfaceExt};
+use crate::surface::{Surface, SurfaceEventManager, SurfaceExt};
 use crate::window_management_policy::*;
 use crate::window_manager::WindowManager;
 use std::cell::RefCell;
 use std::cmp::PartialEq;
-use std::pin::Pin;
 use std::rc::{Rc, Weak};
 use wlroots_sys::*;
 
@@ -17,7 +16,7 @@ pub struct Window {
   pub(crate) mapped: RefCell<bool>,
   pub(crate) top_left: RefCell<Point>,
 
-  pub(crate) event_manager: RefCell<Option<Pin<Box<SurfaceEventManager>>>>,
+  pub(crate) event_manager: RefCell<Option<SurfaceEventManager>>,
 }
 
 impl Window {
@@ -128,52 +127,29 @@ impl PartialEq for Window {
   }
 }
 
-pub(crate) trait WindowEvents {
-  fn bind_events<F>(
-    &self,
-    wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-    output_manager: Rc<RefCell<dyn OutputManager>>,
-    window_manager: Rc<RefCell<WindowManager>>,
-    cursor_manager: Rc<RefCell<dyn CursorManager>>,
-    f: F,
-  ) where
-    F: Fn(&mut SurfaceEventManager) -> ();
+pub(crate) struct WindowResizeEvent {
+  pub(crate) edges: u32,
 }
 
-impl WindowEvents for Rc<Window> {
-  fn bind_events<F>(
-    &self,
-    wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-    output_manager: Rc<RefCell<dyn OutputManager>>,
-    window_manager: Rc<RefCell<WindowManager>>,
-    cursor_manager: Rc<RefCell<dyn CursorManager>>,
-    f: F,
-  ) where
-    F: Fn(&mut SurfaceEventManager) -> (),
-  {
-    let event_handler = SurfaceEventHandler {
-      wm_policy_manager,
-      output_manager,
-      window_manager,
-      cursor_manager,
-      window: Rc::downgrade(self),
-    };
-    let mut event_manager = SurfaceEventManager::new(event_handler);
-    f(&mut event_manager);
-    *self.event_manager.borrow_mut() = Some(event_manager);
-  }
+pub(crate) struct WindowMaximizeEvent {
+  pub(crate) maximize: bool,
 }
 
-pub struct SurfaceEventHandler {
-  wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-  output_manager: Rc<RefCell<dyn OutputManager>>,
-  window_manager: Rc<RefCell<WindowManager>>,
-  cursor_manager: Rc<RefCell<dyn CursorManager>>,
-  window: Weak<Window>,
+pub(crate) struct WindowFullscreenEvent {
+  pub(crate) fullscreen: bool,
+  pub(crate) output: Option<*mut wlr_output>,
 }
 
-impl SurfaceEventHandler {
-  fn map(&mut self) {
+pub(crate) struct WindowEventHandler {
+  pub(crate) wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+  pub(crate) output_manager: Rc<RefCell<dyn OutputManager>>,
+  pub(crate) window_manager: Rc<RefCell<WindowManager>>,
+  pub(crate) cursor_manager: Rc<RefCell<dyn CursorManager>>,
+  pub(crate) window: Weak<Window>,
+}
+
+impl WindowEventHandler {
+  pub(crate) fn map(&mut self) {
     if let Some(window) = self.window.upgrade() {
       self
         .wm_policy_manager
@@ -183,13 +159,13 @@ impl SurfaceEventHandler {
     }
   }
 
-  fn unmap(&mut self) {
+  pub(crate) fn unmap(&mut self) {
     if let Some(window) = self.window.upgrade() {
       *window.mapped.borrow_mut() = false;
     }
   }
 
-  fn destroy(&mut self) {
+  pub(crate) fn destroy(&mut self) {
     if let Some(window) = self.window.upgrade() {
       self
         .wm_policy_manager
@@ -202,7 +178,7 @@ impl SurfaceEventHandler {
     }
   }
 
-  fn request_move(&mut self) {
+  pub(crate) fn request_move(&mut self) {
     if let Some(window) = self.window.upgrade() {
       let request = MoveRequest {
         window: window.clone(),
@@ -217,13 +193,12 @@ impl SurfaceEventHandler {
     }
   }
 
-  // TODO: This is xdg specific
-  fn request_resize(&mut self, event: *mut wlr_xdg_toplevel_resize_event) {
+  pub(crate) fn request_resize(&mut self, event: WindowResizeEvent) {
     if let Some(window) = self.window.upgrade() {
       let request = ResizeRequest {
         window: window.clone(),
         cursor_position: self.cursor_manager.borrow().position(),
-        edges: WindowEdge::from_bits_truncate(unsafe { (*event).edges }),
+        edges: WindowEdge::from_bits_truncate(event.edges),
       };
 
       self
@@ -233,12 +208,11 @@ impl SurfaceEventHandler {
     }
   }
 
-  fn request_maximize(&mut self) {
+  pub(crate) fn request_maximize(&mut self, event: WindowMaximizeEvent) {
     if let Some(window) = self.window.upgrade() {
       let request = MaximizeRequest {
         window: window.clone(),
-        // TODO: get from client pending
-        maximize: !window.maximized(),
+        maximize: event.maximize,
       };
 
       self
@@ -247,18 +221,17 @@ impl SurfaceEventHandler {
         .handle_request_maximize(request);
     }
   }
-  // TODO: This is xdg specific
-  fn request_fullscreen(&mut self, event: *mut wlr_xdg_toplevel_set_fullscreen_event) {
+  pub(crate) fn request_fullscreen(&mut self, event: WindowFullscreenEvent) {
     if let Some(window) = self.window.upgrade() {
       let request = FullscreenRequest {
         window: window.clone(),
-        fullscreen: unsafe { (*event).fullscreen },
+        fullscreen: event.fullscreen,
         output: self
           .output_manager
           .borrow()
           .outputs()
           .iter()
-          .find(|o| o.raw_ptr() == unsafe { (*event).output })
+          .find(|o| Some(o.raw_ptr()) == event.output)
           .cloned(),
       };
 
@@ -268,7 +241,7 @@ impl SurfaceEventHandler {
         .handle_request_fullscreen(request);
     }
   }
-  fn request_minimize(&mut self) {
+  pub(crate) fn request_minimize(&mut self) {
     if let Some(window) = self.window.upgrade() {
       self
         .wm_policy_manager
@@ -277,42 +250,3 @@ impl SurfaceEventHandler {
     }
   }
 }
-
-wayland_listener!(
-  pub SurfaceEventManager,
-  SurfaceEventHandler,
-  [
-    map => map_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
-      handler.map()
-    };
-    unmap => unmap_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
-      handler.unmap()
-    };
-    destroy => destroy_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
-      handler.destroy();
-    };
-    request_move => request_move_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
-      handler.request_move();
-    };
-    request_resize => request_resize_func: |this: &mut SurfaceEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
-      handler.request_resize(data as _);
-    };
-    request_maximize => request_maximize_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
-      handler.request_maximize();
-    };
-    request_fullscreen => request_fullscreen_func: |this: &mut SurfaceEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
-      handler.request_fullscreen(data as _);
-    };
-    request_minimize => request_minimize_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
-      handler.request_minimize();
-    };
-  ]
-);

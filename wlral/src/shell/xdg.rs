@@ -1,8 +1,10 @@
 use crate::geometry::*;
 use crate::input::cursor::CursorManager;
 use crate::output_manager::OutputManager;
-use crate::surface::{Surface, SurfaceExt};
-use crate::window::WindowEvents;
+use crate::surface::{Surface, SurfaceEventManager, SurfaceExt};
+use crate::window::{
+  WindowEventHandler, WindowFullscreenEvent, WindowMaximizeEvent, WindowResizeEvent,
+};
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::{WindowManager, WindowManagerExt};
 use log::debug;
@@ -185,6 +187,60 @@ impl SurfaceExt for XdgSurface {
   }
 }
 
+wayland_listener!(
+  pub XdgSurfaceEventManager,
+  WindowEventHandler,
+  [
+    map => map_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.map()
+    };
+    unmap => unmap_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.unmap()
+    };
+    destroy => destroy_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.destroy();
+    };
+    request_move => request_move_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.request_move();
+    };
+    request_resize => request_resize_func: |this: &mut XdgSurfaceEventManager, data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      let event: *mut wlr_xdg_toplevel_resize_event = data as _;
+      handler.request_resize(WindowResizeEvent {
+        edges: (*event).edges,
+      });
+    };
+    request_maximize => request_maximize_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      if let Some(window) = handler.window.upgrade() {
+        if let Surface::Xdg(ref xdg_surface) = window.surface {
+          if let Toplevel(toplevel) = xdg_surface.get_type() {
+            handler.request_maximize(WindowMaximizeEvent {
+              maximize: (*toplevel).client_pending.maximized
+            });
+          }
+        }
+      }
+    };
+    request_fullscreen => request_fullscreen_func: |this: &mut XdgSurfaceEventManager, data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      let event: *mut wlr_xdg_toplevel_set_fullscreen_event = data as _;
+      handler.request_fullscreen(WindowFullscreenEvent {
+        fullscreen: (*event).fullscreen,
+        output: (*event).output.as_mut().map(|o| o as *mut _),
+      });
+    };
+    request_minimize => request_minimize_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.request_minimize();
+    };
+  ]
+);
+
 pub struct XdgEventHandler {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
   output_manager: Rc<RefCell<dyn OutputManager>>,
@@ -194,35 +250,44 @@ pub struct XdgEventHandler {
 impl XdgEventHandler {
   fn new_surface(&mut self, xdg_surface: *mut wlr_xdg_surface) {
     debug!("new_surface");
-    let surface = self
+
+    let window = self
       .window_manager
       .new_window(Surface::Xdg(XdgSurface(xdg_surface)));
 
-    surface.bind_events(
-      self.wm_policy_manager.clone(),
-      self.output_manager.clone(),
-      self.window_manager.clone(),
-      self.cursor_manager.clone(),
-      |event_manager| unsafe {
-        event_manager.map(&mut (*xdg_surface).events.map);
-        event_manager.unmap(&mut (*xdg_surface).events.unmap);
-        event_manager.destroy(&mut (*xdg_surface).events.destroy);
+    let mut event_manager = XdgSurfaceEventManager::new(WindowEventHandler {
+      wm_policy_manager: self.wm_policy_manager.clone(),
+      output_manager: self.output_manager.clone(),
+      window_manager: self.window_manager.clone(),
+      cursor_manager: self.cursor_manager.clone(),
+      window: Rc::downgrade(&window),
+    });
 
-        if (*xdg_surface).role == wlr_xdg_surface_role_WLR_XDG_SURFACE_ROLE_TOPLEVEL {
-          let toplevel = &mut *(*xdg_surface).__bindgen_anon_1.toplevel;
+    unsafe {
+      event_manager.map(&mut (*xdg_surface).events.map);
+      event_manager.unmap(&mut (*xdg_surface).events.unmap);
+      event_manager.destroy(&mut (*xdg_surface).events.destroy);
+
+      match XdgSurface(xdg_surface).get_type() {
+        Toplevel(toplevel) => {
+          let toplevel = &mut *toplevel;
+
           event_manager.request_move(&mut toplevel.events.request_move);
           event_manager.request_resize(&mut toplevel.events.request_resize);
           event_manager.request_maximize(&mut toplevel.events.request_maximize);
           event_manager.request_fullscreen(&mut toplevel.events.request_fullscreen);
           event_manager.request_minimize(&mut toplevel.events.request_minimize);
         }
-      },
-    );
+        _ => {}
+      }
+    }
+
+    *window.event_manager.borrow_mut() = Some(SurfaceEventManager::Xdg(event_manager));
 
     self
       .wm_policy_manager
       .borrow_mut()
-      .advise_new_window(surface.clone());
+      .advise_new_window(window);
   }
 }
 
