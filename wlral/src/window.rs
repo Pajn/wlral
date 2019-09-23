@@ -1,5 +1,6 @@
 use crate::geometry::{Displacement, FPoint, Point, Rectangle, Size};
 use crate::input::cursor::CursorManager;
+use crate::output_manager::OutputManager;
 use crate::surface::{Surface, SurfaceExt};
 use crate::window_management_policy::*;
 use crate::window_manager::WindowManager;
@@ -26,40 +27,40 @@ impl Window {
     self.surface.wlr_surface()
   }
 
-  fn top_left(&self) -> Displacement {
+  fn position_displacement(&self) -> Displacement {
     self.top_left.borrow().as_displacement() + self.surface.parent_displacement()
+      - self.surface.buffer_displacement()
   }
 
   /// The position and size of the window
   pub fn extents(&self) -> Rectangle {
-    self.surface.extents() + self.top_left()
+    self.surface.extents() + self.position_displacement()
   }
 
   /// The position and size of the buffer
   ///
-  /// When a client draws client-side shadows (liek GTK)
+  /// When a client draws client-side shadows (like GTK)
   /// this is larger than the window extents to also fit
   /// said shadows.
   pub fn buffer_extents(&self) -> Rectangle {
-    unsafe {
-      let surface = &*self.wlr_surface();
+    let surface = unsafe { &*self.wlr_surface() };
 
-      Rectangle {
-        top_left: Point {
-          x: surface.current.dx,
-          y: surface.current.dy,
-        },
-        size: Size {
-          width: surface.current.width,
-          height: surface.current.height,
-        },
-      } + self.top_left()
-    }
+    let buffer_rect = Rectangle {
+      top_left: Point {
+        x: surface.current.dx,
+        y: surface.current.dy,
+      },
+      size: Size {
+        width: surface.current.width,
+        height: surface.current.height,
+      },
+    };
+
+    buffer_rect + self.position_displacement()
   }
 
   pub fn move_to(&self, top_left: Point) {
-    let buffer_displacement = self.extents().top_left() - self.buffer_extents().top_left();
-    *self.top_left.borrow_mut() = top_left - buffer_displacement;
+    *self.top_left.borrow_mut() = top_left;
 
     self.surface.move_to(top_left)
   }
@@ -68,8 +69,33 @@ impl Window {
     self.surface.resize(size)
   }
 
+  pub fn activated(&self) -> bool {
+    self.surface.activated()
+  }
   pub fn can_receive_focus(&self) -> bool {
     self.surface.can_receive_focus()
+  }
+  pub fn set_activated(&self, activated: bool) {
+    self.surface.set_activated(activated)
+  }
+
+  pub fn maximized(&self) -> bool {
+    self.surface.maximized()
+  }
+  pub fn set_maximized(&self, maximized: bool) {
+    self.surface.set_maximized(maximized)
+  }
+  pub fn fullscreen(&self) -> bool {
+    self.surface.fullscreen()
+  }
+  pub fn set_fullscreen(&self, fullscreen: bool) {
+    self.surface.set_fullscreen(fullscreen)
+  }
+  pub fn resizing(&self) -> bool {
+    self.surface.resizing()
+  }
+  pub fn set_resizing(&self, resizing: bool) {
+    self.surface.set_resizing(resizing)
   }
 }
 
@@ -83,6 +109,7 @@ pub(crate) trait WindowEvents {
   fn bind_events<F>(
     &self,
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+    output_manager: Rc<RefCell<dyn OutputManager>>,
     window_manager: Rc<RefCell<WindowManager>>,
     cursor_manager: Rc<RefCell<dyn CursorManager>>,
     f: F,
@@ -94,6 +121,7 @@ impl WindowEvents for Rc<Window> {
   fn bind_events<F>(
     &self,
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+    output_manager: Rc<RefCell<dyn OutputManager>>,
     window_manager: Rc<RefCell<WindowManager>>,
     cursor_manager: Rc<RefCell<dyn CursorManager>>,
     f: F,
@@ -102,6 +130,7 @@ impl WindowEvents for Rc<Window> {
   {
     let event_handler = SurfaceEventHandler {
       wm_policy_manager,
+      output_manager,
       window_manager,
       cursor_manager,
       window: Rc::downgrade(self),
@@ -114,6 +143,7 @@ impl WindowEvents for Rc<Window> {
 
 pub struct SurfaceEventHandler {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+  output_manager: Rc<RefCell<dyn OutputManager>>,
   window_manager: Rc<RefCell<WindowManager>>,
   cursor_manager: Rc<RefCell<dyn CursorManager>>,
   window: Weak<Window>,
@@ -151,7 +181,7 @@ impl SurfaceEventHandler {
 
   fn request_move(&mut self) {
     if let Some(window) = self.window.upgrade() {
-      let event = MoveEvent {
+      let request = MoveRequest {
         window: window.clone(),
         drag_point: self.cursor_manager.borrow().position()
           - FPoint::from(window.extents().top_left()).as_displacement(),
@@ -160,13 +190,14 @@ impl SurfaceEventHandler {
       self
         .wm_policy_manager
         .borrow_mut()
-        .handle_request_move(event);
+        .handle_request_move(request);
     }
   }
 
+  // TODO: This is xdg specific
   fn request_resize(&mut self, event: *mut wlr_xdg_toplevel_resize_event) {
     if let Some(window) = self.window.upgrade() {
-      let event = ResizeEvent {
+      let request = ResizeRequest {
         window: window.clone(),
         cursor_position: self.cursor_manager.borrow().position(),
         edges: WindowEdge::from_bits_truncate(unsafe { (*event).edges }),
@@ -175,7 +206,51 @@ impl SurfaceEventHandler {
       self
         .wm_policy_manager
         .borrow_mut()
-        .handle_request_resize(event);
+        .handle_request_resize(request);
+    }
+  }
+
+  fn request_maximize(&mut self) {
+    if let Some(window) = self.window.upgrade() {
+      let request = MaximizeRequest {
+        window: window.clone(),
+        // TODO: get from client pending
+        maximize: !window.maximized(),
+      };
+
+      self
+        .wm_policy_manager
+        .borrow_mut()
+        .handle_request_maximize(request);
+    }
+  }
+  // TODO: This is xdg specific
+  fn request_fullscreen(&mut self, event: *mut wlr_xdg_toplevel_set_fullscreen_event) {
+    if let Some(window) = self.window.upgrade() {
+      let request = FullscreenRequest {
+        window: window.clone(),
+        fullscreen: unsafe { (*event).fullscreen },
+        output: self
+          .output_manager
+          .borrow()
+          .outputs()
+          .iter()
+          .find(|o| o.raw_ptr() == unsafe { (*event).output })
+          .cloned(),
+      };
+
+      self
+        .wm_policy_manager
+        .borrow_mut()
+        .handle_request_fullscreen(request);
+    }
+  }
+  fn request_minimize(&mut self) {
+    if let Some(window) = self.window.upgrade() {
+      self
+        .wm_policy_manager
+        .borrow_mut()
+        .handle_request_minimize(window.clone());
     }
   }
 }
@@ -203,6 +278,18 @@ wayland_listener!(
     request_resize => request_resize_func: |this: &mut SurfaceEventManager, data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
       handler.request_resize(data as _);
+    };
+    request_maximize => request_maximize_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.request_maximize();
+    };
+    request_fullscreen => request_fullscreen_func: |this: &mut SurfaceEventManager, data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.request_fullscreen(data as _);
+    };
+    request_minimize => request_minimize_func: |this: &mut SurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.request_minimize();
     };
   ]
 );

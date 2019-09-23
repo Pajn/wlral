@@ -15,17 +15,28 @@ bitflags! {
   }
 }
 
-pub struct MoveEvent {
+pub struct MoveRequest {
   pub window: Rc<Window>,
   // Window local coordinates of where on the window the drag was initiated
   pub drag_point: FPoint,
 }
 
-pub struct ResizeEvent {
+pub struct ResizeRequest {
   pub window: Rc<Window>,
   // Global coordinates of the cursor position where the resize was initiated
   pub cursor_position: FPoint,
   pub edges: WindowEdge,
+}
+
+pub struct MaximizeRequest {
+  pub window: Rc<Window>,
+  pub maximize: bool,
+}
+
+pub struct FullscreenRequest {
+  pub window: Rc<Window>,
+  pub fullscreen: bool,
+  pub output: Option<Rc<Output>>,
 }
 
 pub trait WindowManagementPolicy {
@@ -34,9 +45,12 @@ pub trait WindowManagementPolicy {
   fn advise_delete_window(&mut self, _window: Rc<Window>) {}
 
   /// request from client to initiate move
-  fn handle_request_move(&mut self, _event: MoveEvent) {}
+  fn handle_request_move(&mut self, _request: MoveRequest) {}
   /// request from client to initiate resize
-  fn handle_request_resize(&mut self, _event: ResizeEvent) {}
+  fn handle_request_resize(&mut self, _request: ResizeRequest) {}
+  fn handle_request_maximize(&mut self, _request: MaximizeRequest) {}
+  fn handle_request_fullscreen(&mut self, _request: FullscreenRequest) {}
+  fn handle_request_minimize(&mut self, _window: Rc<Window>) {}
 
   fn advise_output_create(&mut self, _output: Rc<Output>) {}
   fn advise_output_delete(&mut self, _output: Rc<Output>) {}
@@ -76,14 +90,29 @@ impl WindowManagementPolicy for WmPolicyManager {
     }
   }
 
-  fn handle_request_move(&mut self, event: MoveEvent) {
+  fn handle_request_move(&mut self, request: MoveRequest) {
     if let Some(ref mut policy) = self.policy {
-      policy.borrow_mut().handle_request_move(event)
+      policy.borrow_mut().handle_request_move(request)
     }
   }
-  fn handle_request_resize(&mut self, event: ResizeEvent) {
+  fn handle_request_resize(&mut self, request: ResizeRequest) {
     if let Some(ref mut policy) = self.policy {
-      policy.borrow_mut().handle_request_resize(event)
+      policy.borrow_mut().handle_request_resize(request)
+    }
+  }
+  fn handle_request_maximize(&mut self, request: MaximizeRequest) {
+    if let Some(ref mut policy) = self.policy {
+      policy.borrow_mut().handle_request_maximize(request)
+    }
+  }
+  fn handle_request_fullscreen(&mut self, request: FullscreenRequest) {
+    if let Some(ref mut policy) = self.policy {
+      policy.borrow_mut().handle_request_fullscreen(request)
+    }
+  }
+  fn handle_request_minimize(&mut self, window: Rc<Window>) {
+    if let Some(ref mut policy) = self.policy {
+      policy.borrow_mut().handle_request_minimize(window)
     }
   }
 

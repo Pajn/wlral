@@ -1,5 +1,6 @@
 use crate::geometry::*;
 use crate::input::cursor::CursorManager;
+use crate::output_manager::OutputManager;
 use crate::surface::{Surface, SurfaceExt};
 use crate::window::WindowEvents;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
@@ -31,6 +32,10 @@ impl XwaylandSurface {
 impl SurfaceExt for XwaylandSurface {
   fn wlr_surface(&self) -> *mut wlr_surface {
     unsafe { (*self.0).surface }
+  }
+
+  fn buffer_displacement(&self) -> Displacement {
+    Displacement::ZERO
   }
 
   fn parent_displacement(&self) -> Displacement {
@@ -80,16 +85,40 @@ impl SurfaceExt for XwaylandSurface {
     // TODO: Is this true?
     true
   }
-
+  fn activated(&self) -> bool {
+    false
+  }
   fn set_activated(&self, activated: bool) {
     unsafe {
       wlr_xwayland_surface_activate(self.0, activated);
     }
   }
+
+  fn maximized(&self) -> bool {
+    unsafe { (*self.0).maximized_vert && (*self.0).maximized_horz }
+  }
+  fn set_maximized(&self, maximized: bool) {
+    unsafe {
+      wlr_xwayland_surface_set_maximized(self.0, maximized);
+    }
+  }
+  fn fullscreen(&self) -> bool {
+    unsafe { (*self.0).fullscreen }
+  }
+  fn set_fullscreen(&self, fullscreen: bool) {
+    unsafe {
+      wlr_xwayland_surface_set_fullscreen(self.0, fullscreen);
+    }
+  }
+  fn resizing(&self) -> bool {
+    false
+  }
+  fn set_resizing(&self, _resizing: bool) {}
 }
 
 pub struct XwaylandEventHandler {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+  output_manager: Rc<RefCell<dyn OutputManager>>,
   window_manager: Rc<RefCell<WindowManager>>,
   cursor_manager: Rc<RefCell<dyn CursorManager>>,
 }
@@ -103,6 +132,7 @@ impl XwaylandEventHandler {
 
     surface.bind_events(
       self.wm_policy_manager.clone(),
+      self.output_manager.clone(),
       self.window_manager.clone(),
       self.cursor_manager.clone(),
       |event_manager| unsafe {
@@ -111,6 +141,9 @@ impl XwaylandEventHandler {
         event_manager.destroy(&mut (*xwayland_surface).events.destroy);
         event_manager.request_move(&mut (*xwayland_surface).events.request_move);
         event_manager.request_resize(&mut (*xwayland_surface).events.request_resize);
+        event_manager.request_maximize(&mut (*xwayland_surface).events.request_maximize);
+        event_manager.request_fullscreen(&mut (*xwayland_surface).events.request_fullscreen);
+        // TODO: minimize?
       },
     );
 
@@ -143,6 +176,7 @@ pub struct XwaylandManager {
 impl XwaylandManager {
   pub(crate) fn init(
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+    output_manager: Rc<RefCell<dyn OutputManager>>,
     window_manager: Rc<RefCell<WindowManager>>,
     cursor_manager: Rc<RefCell<dyn CursorManager>>,
     display: *mut wl_display,
@@ -162,6 +196,7 @@ impl XwaylandManager {
 
     let event_handler = Rc::new(RefCell::new(XwaylandEventHandler {
       wm_policy_manager,
+      output_manager,
       window_manager,
       cursor_manager,
     }));

@@ -1,5 +1,5 @@
 use crate::geometry::{Displacement, Point, Rectangle, Size, TransformMatrix};
-use crate::output_manager::OutputManager;
+use crate::output_manager::OutputManagerImpl;
 use crate::window::Window;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::WindowManager;
@@ -13,7 +13,7 @@ use wlroots_sys::*;
 pub struct Output {
   pub(crate) wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
   pub(crate) window_manager: Rc<RefCell<WindowManager>>,
-  pub(crate) output_manager: Rc<RefCell<OutputManager>>,
+  pub(crate) output_manager: Rc<RefCell<OutputManagerImpl>>,
 
   pub(crate) renderer: *mut wlr_renderer,
   pub(crate) output_layout: *mut wlr_output_layout,

@@ -27,12 +27,23 @@ use Surface::*;
 
 pub(crate) trait SurfaceExt {
   fn wlr_surface(&self) -> *mut wlr_surface;
+  fn buffer_displacement(&self) -> Displacement;
   fn parent_displacement(&self) -> Displacement;
+
   fn extents(&self) -> Rectangle;
   fn move_to(&self, top_left: Point);
   fn resize(&self, size: Size);
+
   fn can_receive_focus(&self) -> bool;
+  fn activated(&self) -> bool;
   fn set_activated(&self, activated: bool);
+
+  fn maximized(&self) -> bool;
+  fn set_maximized(&self, maximized: bool);
+  fn fullscreen(&self) -> bool;
+  fn set_fullscreen(&self, fullscreen: bool);
+  fn resizing(&self) -> bool;
+  fn set_resizing(&self, resizing: bool);
 }
 
 impl SurfaceExt for Surface {
@@ -42,6 +53,15 @@ impl SurfaceExt for Surface {
       Xwayland(surface) => surface.wlr_surface(),
       #[cfg(test)]
       Null => std::ptr::null_mut(),
+    }
+  }
+
+  fn buffer_displacement(&self) -> Displacement {
+    match self {
+      Xdg(surface) => surface.buffer_displacement(),
+      Xwayland(surface) => surface.buffer_displacement(),
+      #[cfg(test)]
+      Null => Displacement::ZERO,
     }
   }
 
@@ -89,11 +109,67 @@ impl SurfaceExt for Surface {
       Null => false,
     }
   }
-
+  fn activated(&self) -> bool {
+    match self {
+      Xdg(surface) => surface.activated(),
+      Xwayland(surface) => surface.activated(),
+      #[cfg(test)]
+      Null => false,
+    }
+  }
   fn set_activated(&self, activated: bool) {
     match self {
       Xdg(surface) => surface.set_activated(activated),
       Xwayland(surface) => surface.set_activated(activated),
+      #[cfg(test)]
+      Null => {}
+    }
+  }
+
+  fn maximized(&self) -> bool {
+    match self {
+      Xdg(surface) => surface.maximized(),
+      Xwayland(surface) => surface.maximized(),
+      #[cfg(test)]
+      Null => false,
+    }
+  }
+  fn set_maximized(&self, maximized: bool) {
+    match self {
+      Xdg(surface) => surface.set_maximized(maximized),
+      Xwayland(surface) => surface.set_maximized(maximized),
+      #[cfg(test)]
+      Null => {}
+    }
+  }
+  fn fullscreen(&self) -> bool {
+    match self {
+      Xdg(surface) => surface.fullscreen(),
+      Xwayland(surface) => surface.fullscreen(),
+      #[cfg(test)]
+      Null => false,
+    }
+  }
+  fn set_fullscreen(&self, fullscreen: bool) {
+    match self {
+      Xdg(surface) => surface.set_fullscreen(fullscreen),
+      Xwayland(surface) => surface.set_fullscreen(fullscreen),
+      #[cfg(test)]
+      Null => {}
+    }
+  }
+  fn resizing(&self) -> bool {
+    match self {
+      Xdg(surface) => surface.resizing(),
+      Xwayland(surface) => surface.resizing(),
+      #[cfg(test)]
+      Null => false,
+    }
+  }
+  fn set_resizing(&self, resizing: bool) {
+    match self {
+      Xdg(surface) => surface.set_resizing(resizing),
+      Xwayland(surface) => surface.set_resizing(resizing),
       #[cfg(test)]
       Null => {}
     }

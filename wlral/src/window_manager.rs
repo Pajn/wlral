@@ -116,6 +116,7 @@ impl WindowManager {
 mod tests {
   use super::*;
   use crate::input::cursor::MockCursorManager;
+  use crate::output_manager::MockOutputManager;
   use crate::test_util::*;
   use crate::window::WindowEvents;
   use crate::window_management_policy::WmPolicyManager;
@@ -135,6 +136,7 @@ mod tests {
 
     window.bind_events(
       wm_policy_manager,
+      Rc::new(RefCell::new(MockOutputManager::default())),
       window_manager.clone(),
       cursor_manager.clone(),
       |event_manager| unsafe {

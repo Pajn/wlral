@@ -1,5 +1,6 @@
 use crate::geometry::*;
 use crate::input::cursor::CursorManager;
+use crate::output_manager::OutputManager;
 use crate::surface::{Surface, SurfaceExt};
 use crate::window::WindowEvents;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
@@ -9,6 +10,13 @@ use std::pin::Pin;
 use std::rc::Rc;
 use wayland_sys::server::wl_display;
 use wlroots_sys::*;
+
+enum XdgSurfaceType {
+  None,
+  Toplevel(*mut wlr_xdg_toplevel),
+  Popup(*mut wlr_xdg_popup),
+}
+use XdgSurfaceType::{Popup, Toplevel};
 
 #[derive(PartialEq, Eq)]
 pub struct XdgSurface(*mut wlr_xdg_surface);
@@ -24,6 +32,20 @@ impl XdgSurface {
       }
     }
   }
+
+  fn get_type(&self) -> XdgSurfaceType {
+    unsafe {
+      match (*self.0).role {
+        role if role == wlr_xdg_surface_role_WLR_XDG_SURFACE_ROLE_TOPLEVEL => {
+          XdgSurfaceType::Toplevel((*self.0).__bindgen_anon_1.toplevel)
+        }
+        role if role == wlr_xdg_surface_role_WLR_XDG_SURFACE_ROLE_POPUP => {
+          XdgSurfaceType::Popup((*self.0).__bindgen_anon_1.popup)
+        }
+        _ => XdgSurfaceType::None,
+      }
+    }
+  }
 }
 
 impl SurfaceExt for XdgSurface {
@@ -31,22 +53,31 @@ impl SurfaceExt for XdgSurface {
     unsafe { (*self.0).surface }
   }
 
+  fn buffer_displacement(&self) -> Displacement {
+    let surface = unsafe { &*self.wlr_surface() };
+
+    let buffer_position = Point {
+      x: surface.current.dx,
+      y: surface.current.dy,
+    };
+
+    self.extents().top_left() - buffer_position
+  }
+
   fn parent_displacement(&self) -> Displacement {
-    unsafe {
-      if (*self.0).role == wlr_xdg_surface_role_WLR_XDG_SURFACE_ROLE_POPUP {
-        let popup = &*(*self.0).__bindgen_anon_1.popup;
-        let parent = wlr_xdg_surface_from_wlr_surface(popup.parent);
+    match self.get_type() {
+      Popup(popup) => unsafe {
+        let parent = wlr_xdg_surface_from_wlr_surface((*popup).parent);
         let mut parent_geo = Rectangle::ZERO.into();
 
         wlr_xdg_surface_get_geometry(parent, &mut parent_geo);
 
         Displacement {
-          dx: parent_geo.x + popup.geometry.x,
-          dy: parent_geo.y + popup.geometry.y,
+          dx: parent_geo.x + (*popup).geometry.x,
+          dy: parent_geo.y + (*popup).geometry.y,
         }
-      } else {
-        Displacement::ZERO
-      }
+      },
+      _ => Displacement::ZERO,
     }
   }
 
@@ -61,28 +92,82 @@ impl SurfaceExt for XdgSurface {
   fn move_to(&self, _top_left: Point) {}
 
   fn resize(&self, size: Size) {
-    unsafe {
-      if (*self.0).role == wlr_xdg_surface_role_WLR_XDG_SURFACE_ROLE_TOPLEVEL {
+    match self.get_type() {
+      Toplevel(_) => unsafe {
         wlr_xdg_toplevel_set_size(self.0, size.width as u32, size.height as u32);
-      }
+      },
+      _ => {}
     }
   }
 
   fn can_receive_focus(&self) -> bool {
-    unsafe { (*self.0).role == wlr_xdg_surface_role_WLR_XDG_SURFACE_ROLE_TOPLEVEL }
+    match self.get_type() {
+      Toplevel(_) => true,
+      _ => false,
+    }
+  }
+  fn activated(&self) -> bool {
+    match self.get_type() {
+      Toplevel(toplevel) => unsafe { (*toplevel).current.activated },
+      _ => false,
+    }
+  }
+  fn set_activated(&self, activated: bool) {
+    match self.get_type() {
+      Toplevel(_) => unsafe {
+        wlr_xdg_toplevel_set_activated(self.0, activated);
+      },
+      _ => {}
+    }
   }
 
-  fn set_activated(&self, activated: bool) {
-    unsafe {
-      if (*self.0).role == wlr_xdg_surface_role_WLR_XDG_SURFACE_ROLE_TOPLEVEL {
-        wlr_xdg_toplevel_set_activated(self.0, activated);
-      }
+  fn maximized(&self) -> bool {
+    match self.get_type() {
+      Toplevel(toplevel) => unsafe { (*toplevel).current.maximized },
+      _ => false,
+    }
+  }
+  fn set_maximized(&self, maximized: bool) {
+    match self.get_type() {
+      Toplevel(_) => unsafe {
+        wlr_xdg_toplevel_set_maximized(self.0, maximized);
+      },
+      _ => {}
+    }
+  }
+  fn fullscreen(&self) -> bool {
+    match self.get_type() {
+      Toplevel(toplevel) => unsafe { (*toplevel).current.fullscreen },
+      _ => false,
+    }
+  }
+  fn set_fullscreen(&self, fullscreen: bool) {
+    match self.get_type() {
+      Toplevel(_) => unsafe {
+        wlr_xdg_toplevel_set_fullscreen(self.0, fullscreen);
+      },
+      _ => {}
+    }
+  }
+  fn resizing(&self) -> bool {
+    match self.get_type() {
+      Toplevel(toplevel) => unsafe { (*toplevel).current.resizing },
+      _ => false,
+    }
+  }
+  fn set_resizing(&self, resizing: bool) {
+    match self.get_type() {
+      Toplevel(_) => unsafe {
+        wlr_xdg_toplevel_set_resizing(self.0, resizing);
+      },
+      _ => {}
     }
   }
 }
 
 pub struct XdgEventHandler {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+  output_manager: Rc<RefCell<dyn OutputManager>>,
   window_manager: Rc<RefCell<WindowManager>>,
   cursor_manager: Rc<RefCell<dyn CursorManager>>,
 }
@@ -96,6 +181,7 @@ impl XdgEventHandler {
 
     surface.bind_events(
       self.wm_policy_manager.clone(),
+      self.output_manager.clone(),
       self.window_manager.clone(),
       self.cursor_manager.clone(),
       |event_manager| unsafe {
@@ -107,6 +193,9 @@ impl XdgEventHandler {
           let toplevel = &mut *(*xdg_surface).__bindgen_anon_1.toplevel;
           event_manager.request_move(&mut toplevel.events.request_move);
           event_manager.request_resize(&mut toplevel.events.request_resize);
+          event_manager.request_maximize(&mut toplevel.events.request_maximize);
+          event_manager.request_fullscreen(&mut toplevel.events.request_fullscreen);
+          event_manager.request_minimize(&mut toplevel.events.request_minimize);
         }
       },
     );
@@ -140,6 +229,7 @@ pub struct XdgManager {
 impl XdgManager {
   pub(crate) fn init(
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+    output_manager: Rc<RefCell<dyn OutputManager>>,
     window_manager: Rc<RefCell<WindowManager>>,
     cursor_manager: Rc<RefCell<dyn CursorManager>>,
     display: *mut wl_display,
@@ -150,6 +240,7 @@ impl XdgManager {
 
     let event_handler = Rc::new(RefCell::new(XdgEventHandler {
       wm_policy_manager,
+      output_manager,
       window_manager,
       cursor_manager,
     }));

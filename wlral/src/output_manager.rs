@@ -7,9 +7,12 @@ use std::rc::Rc;
 use std::time::Instant;
 use wlroots_sys::*;
 
+#[cfg(test)]
+use mockall::*;
+
 wayland_listener!(
   pub OutputManagerEventManager,
-  Rc<RefCell<OutputManager>>,
+  Rc<RefCell<OutputManagerImpl>>,
   [
     new_output => new_output_func: |this: &mut OutputManagerEventManager, data: *mut libc::c_void,| unsafe {
       let ref mut manager = this.data;
@@ -34,8 +37,12 @@ wayland_listener!(
   ]
 );
 
-#[allow(unused)]
-pub struct OutputManager {
+#[cfg_attr(test, automock)]
+pub trait OutputManager {
+  fn outputs(&self) -> &Vec<Rc<Output>>;
+}
+
+pub struct OutputManagerImpl {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
   window_manager: Rc<RefCell<WindowManager>>,
   renderer: *mut wlr_renderer,
@@ -45,15 +52,21 @@ pub struct OutputManager {
   event_manager: Option<Pin<Box<OutputManagerEventManager>>>,
 }
 
-impl OutputManager {
+impl OutputManager for OutputManagerImpl {
+  fn outputs(&self) -> &Vec<Rc<Output>> {
+    &self.outputs
+  }
+}
+
+impl OutputManagerImpl {
   pub(crate) fn init(
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
     window_manager: Rc<RefCell<WindowManager>>,
     backend: *mut wlr_backend,
     renderer: *mut wlr_renderer,
     output_layout: *mut wlr_output_layout,
-  ) -> Rc<RefCell<OutputManager>> {
-    let output_manager = Rc::new(RefCell::new(OutputManager {
+  ) -> Rc<RefCell<OutputManagerImpl>> {
+    let output_manager = Rc::new(RefCell::new(OutputManagerImpl {
       wm_policy_manager,
       window_manager,
       renderer,
@@ -115,10 +128,6 @@ impl OutputManager {
       .outputs
       .retain(|output| output.raw_ptr() != destroyed_output.raw_ptr());
   }
-
-  pub fn outputs(&self) -> &Vec<Rc<Output>> {
-    &self.outputs
-  }
 }
 
 #[cfg(test)]
@@ -132,7 +141,7 @@ mod tests {
   fn it_drops_and_cleans_up_on_destroy() {
     let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
     let window_manager = Rc::new(RefCell::new(WindowManager::init(ptr::null_mut())));
-    let output_manager = Rc::new(RefCell::new(OutputManager {
+    let output_manager = Rc::new(RefCell::new(OutputManagerImpl {
       wm_policy_manager: wm_policy_manager.clone(),
       window_manager: window_manager.clone(),
       renderer: ptr::null_mut(),

@@ -2,7 +2,7 @@ use crate::input::cursor::*;
 use crate::input::event_filter::*;
 use crate::input::keyboard::*;
 use crate::input::seat::*;
-use crate::output_manager::OutputManager;
+use crate::output_manager::{OutputManager, OutputManagerImpl};
 use crate::shell::xdg::*;
 use crate::shell::xwayland::*;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
@@ -22,7 +22,7 @@ pub struct Compositor {
   compositor: *mut wlr_compositor,
 
   output_layout: *mut wlr_output_layout,
-  output_manager: Rc<RefCell<OutputManager>>,
+  output_manager: Rc<RefCell<OutputManagerImpl>>,
 
   window_manager: Rc<RefCell<WindowManager>>,
   xdg_manager: XdgManager,
@@ -79,7 +79,7 @@ impl Compositor {
       // arrangement of screens in a physical layout.
       let output_layout = wlr_output_layout_create();
 
-      let output_manager = OutputManager::init(
+      let output_manager = OutputManagerImpl::init(
         wm_policy_manager.clone(),
         window_manager.clone(),
         backend,
@@ -107,12 +107,14 @@ impl Compositor {
 
       let xdg_manager = XdgManager::init(
         wm_policy_manager.clone(),
+        output_manager.clone(),
         window_manager.clone(),
         cursor_manager.clone(),
         display,
       );
       let xwayland_manager = XwaylandManager::init(
         wm_policy_manager.clone(),
+        output_manager.clone(),
         window_manager.clone(),
         cursor_manager.clone(),
         display,
@@ -166,7 +168,7 @@ impl Compositor {
     }
   }
 
-  pub fn output_manager(&self) -> Rc<RefCell<OutputManager>> {
+  pub fn output_manager(&self) -> Rc<RefCell<dyn OutputManager>> {
     self.output_manager.clone()
   }
 

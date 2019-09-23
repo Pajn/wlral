@@ -371,7 +371,7 @@ impl Sub<Displacement> for Rectangle {
 
   fn sub(self, other: Displacement) -> Self::Output {
     Rectangle {
-      top_left: self.top_left + other,
+      top_left: self.top_left - other,
       size: self.size,
     }
   }
