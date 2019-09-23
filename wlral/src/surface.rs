@@ -45,6 +45,8 @@ pub(crate) trait SurfaceExt {
   fn set_fullscreen(&self, fullscreen: bool);
   fn resizing(&self) -> bool;
   fn set_resizing(&self, resizing: bool);
+
+  fn ask_client_to_close(&self);
 }
 
 impl SurfaceExt for Surface {
@@ -180,6 +182,15 @@ impl SurfaceExt for Surface {
     match self {
       Xdg(surface) => surface.set_resizing(resizing),
       Xwayland(surface) => surface.set_resizing(resizing),
+      #[cfg(test)]
+      Null => {}
+    }
+  }
+
+  fn ask_client_to_close(&self) {
+    match self {
+      Xdg(surface) => surface.ask_client_to_close(),
+      Xwayland(surface) => surface.ask_client_to_close(),
       #[cfg(test)]
       Null => {}
     }

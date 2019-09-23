@@ -320,6 +320,10 @@ impl<'a> KeyboardEvent<'a> {
     unsafe { (*self.event).keycode + 8 }
   }
 
+  pub fn xkb_state(&self) -> &xkb::State {
+    self.keyboard.xkb_state()
+  }
+
   pub fn state(&self) -> xkb::StateComponent {
     unsafe { (*self.event).state }
   }

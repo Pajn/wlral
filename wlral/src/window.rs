@@ -116,6 +116,10 @@ impl Window {
   pub fn set_resizing(&self, resizing: bool) {
     self.surface.set_resizing(resizing)
   }
+
+  pub fn ask_client_to_close(&self) {
+    self.surface.ask_client_to_close()
+  }
 }
 
 impl PartialEq for Window {

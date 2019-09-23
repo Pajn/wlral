@@ -170,6 +170,18 @@ impl SurfaceExt for XdgSurface {
       _ => {}
     }
   }
+
+  fn ask_client_to_close(&self) {
+    match self.get_type() {
+      Toplevel(_) => unsafe {
+        wlr_xdg_toplevel_send_close(self.0);
+      },
+      Popup(_) => unsafe {
+        wlr_xdg_popup_destroy(self.0);
+      },
+      _ => {}
+    }
+  }
 }
 
 pub struct XdgEventHandler {

@@ -10,6 +10,7 @@ use wlral::output_manager::OutputManager;
 use wlral::window::Window;
 use wlral::window_management_policy::*;
 use wlral::window_manager::WindowManager;
+use xkbcommon::xkb;
 
 enum Gesture {
   Move(MoveRequest),
@@ -195,6 +196,23 @@ impl EventFilter for FloatingWindowManager {
         true
       }
       _ => false,
+    }
+  }
+
+  fn handle_keyboard_event(&mut self, event: &KeyboardEvent) -> bool {
+    let keysym = event.get_one_sym();
+
+    if keysym == xkb::KEY_Escape
+      && event
+        .xkb_state()
+        .mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_DEPRESSED)
+    {
+      if let Some(window) = self.window_manager.borrow().focused_window() {
+        window.ask_client_to_close();
+      }
+      true
+    } else {
+      false
     }
   }
 }

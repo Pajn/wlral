@@ -118,6 +118,12 @@ impl SurfaceExt for XwaylandSurface {
     false
   }
   fn set_resizing(&self, _resizing: bool) {}
+
+  fn ask_client_to_close(&self) {
+    unsafe {
+      wlr_xwayland_surface_close(self.0);
+    }
+  }
 }
 
 pub struct XwaylandEventHandler {

@@ -54,11 +54,21 @@ impl WindowManager {
     &self.windows
   }
 
+  /// Returns the window that holds keyboard focus
+  pub fn focused_window(&self) -> Option<Rc<Window>> {
+    let focused_surface = unsafe { (*self.seat).keyboard_state.focused_surface };
+    self
+      .windows
+      .iter()
+      .find(|w| w.wlr_surface() == focused_surface)
+      .cloned()
+  }
+
   /// If the window have keyboard focus
   pub fn window_has_focus(&self, window: &Window) -> bool {
     let wlr_surface = window.wlr_surface();
-    let focused_window = unsafe { (*self.seat).keyboard_state.focused_surface };
-    wlr_surface == focused_window
+    let focused_surface = unsafe { (*self.seat).keyboard_state.focused_surface };
+    wlr_surface == focused_surface
   }
 
   /// Gives keyboard focus to the window
