@@ -34,18 +34,23 @@ pub(crate) trait SurfaceExt {
 
   fn extents(&self) -> Rectangle;
   fn move_to(&self, top_left: Point);
-  fn resize(&self, size: Size);
+  /// Returns the associated configure serial
+  fn resize(&self, size: Size) -> u32;
 
   fn can_receive_focus(&self) -> bool;
   fn activated(&self) -> bool;
-  fn set_activated(&self, activated: bool);
+  /// Returns the associated configure serial
+  fn set_activated(&self, activated: bool) -> u32;
 
   fn maximized(&self) -> bool;
-  fn set_maximized(&self, maximized: bool);
+  /// Returns the associated configure serial
+  fn set_maximized(&self, maximized: bool) -> u32;
   fn fullscreen(&self) -> bool;
-  fn set_fullscreen(&self, fullscreen: bool);
+  /// Returns the associated configure serial
+  fn set_fullscreen(&self, fullscreen: bool) -> u32;
   fn resizing(&self) -> bool;
-  fn set_resizing(&self, resizing: bool);
+  /// Returns the associated configure serial
+  fn set_resizing(&self, resizing: bool) -> u32;
 
   fn ask_client_to_close(&self);
 }
@@ -105,12 +110,12 @@ impl SurfaceExt for Surface {
     }
   }
 
-  fn resize(&self, size: Size) {
+  fn resize(&self, size: Size) -> u32 {
     match self {
       Xdg(surface) => surface.resize(size),
       Xwayland(surface) => surface.resize(size),
       #[cfg(test)]
-      Null => {}
+      Null => 1,
     }
   }
 
@@ -130,12 +135,12 @@ impl SurfaceExt for Surface {
       Null => false,
     }
   }
-  fn set_activated(&self, activated: bool) {
+  fn set_activated(&self, activated: bool) -> u32 {
     match self {
       Xdg(surface) => surface.set_activated(activated),
       Xwayland(surface) => surface.set_activated(activated),
       #[cfg(test)]
-      Null => {}
+      Null => 1,
     }
   }
 
@@ -147,12 +152,12 @@ impl SurfaceExt for Surface {
       Null => false,
     }
   }
-  fn set_maximized(&self, maximized: bool) {
+  fn set_maximized(&self, maximized: bool) -> u32 {
     match self {
       Xdg(surface) => surface.set_maximized(maximized),
       Xwayland(surface) => surface.set_maximized(maximized),
       #[cfg(test)]
-      Null => {}
+      Null => 1,
     }
   }
   fn fullscreen(&self) -> bool {
@@ -163,12 +168,12 @@ impl SurfaceExt for Surface {
       Null => false,
     }
   }
-  fn set_fullscreen(&self, fullscreen: bool) {
+  fn set_fullscreen(&self, fullscreen: bool) -> u32 {
     match self {
       Xdg(surface) => surface.set_fullscreen(fullscreen),
       Xwayland(surface) => surface.set_fullscreen(fullscreen),
       #[cfg(test)]
-      Null => {}
+      Null => 1,
     }
   }
   fn resizing(&self) -> bool {
@@ -179,12 +184,12 @@ impl SurfaceExt for Surface {
       Null => false,
     }
   }
-  fn set_resizing(&self, resizing: bool) {
+  fn set_resizing(&self, resizing: bool) -> u32 {
     match self {
       Xdg(surface) => surface.set_resizing(resizing),
       Xwayland(surface) => surface.set_resizing(resizing),
       #[cfg(test)]
-      Null => {}
+      Null => 1,
     }
   }
 

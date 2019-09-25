@@ -2,9 +2,7 @@ use crate::geometry::*;
 use crate::input::cursor::CursorManager;
 use crate::output_manager::OutputManager;
 use crate::surface::{Surface, SurfaceEventManager, SurfaceExt};
-use crate::window::{
-  WindowEventHandler, WindowFullscreenEvent, WindowMaximizeEvent, WindowResizeEvent,
-};
+use crate::window::*;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::{WindowManager, WindowManagerExt};
 use log::debug;
@@ -101,12 +99,12 @@ impl SurfaceExt for XdgSurface {
 
   fn move_to(&self, _top_left: Point) {}
 
-  fn resize(&self, size: Size) {
+  fn resize(&self, size: Size) -> u32 {
     match self.get_type() {
       Toplevel(_) => unsafe {
-        wlr_xdg_toplevel_set_size(self.0, size.width as u32, size.height as u32);
+        wlr_xdg_toplevel_set_size(self.0, size.width as u32, size.height as u32)
       },
-      _ => {}
+      _ => 0,
     }
   }
 
@@ -122,12 +120,10 @@ impl SurfaceExt for XdgSurface {
       _ => false,
     }
   }
-  fn set_activated(&self, activated: bool) {
+  fn set_activated(&self, activated: bool) -> u32 {
     match self.get_type() {
-      Toplevel(_) => unsafe {
-        wlr_xdg_toplevel_set_activated(self.0, activated);
-      },
-      _ => {}
+      Toplevel(_) => unsafe { wlr_xdg_toplevel_set_activated(self.0, activated) },
+      _ => 0,
     }
   }
 
@@ -137,12 +133,10 @@ impl SurfaceExt for XdgSurface {
       _ => false,
     }
   }
-  fn set_maximized(&self, maximized: bool) {
+  fn set_maximized(&self, maximized: bool) -> u32 {
     match self.get_type() {
-      Toplevel(_) => unsafe {
-        wlr_xdg_toplevel_set_maximized(self.0, maximized);
-      },
-      _ => {}
+      Toplevel(_) => unsafe { wlr_xdg_toplevel_set_maximized(self.0, maximized) },
+      _ => 0,
     }
   }
   fn fullscreen(&self) -> bool {
@@ -151,12 +145,10 @@ impl SurfaceExt for XdgSurface {
       _ => false,
     }
   }
-  fn set_fullscreen(&self, fullscreen: bool) {
+  fn set_fullscreen(&self, fullscreen: bool) -> u32 {
     match self.get_type() {
-      Toplevel(_) => unsafe {
-        wlr_xdg_toplevel_set_fullscreen(self.0, fullscreen);
-      },
-      _ => {}
+      Toplevel(_) => unsafe { wlr_xdg_toplevel_set_fullscreen(self.0, fullscreen) },
+      _ => 0,
     }
   }
   fn resizing(&self) -> bool {
@@ -165,12 +157,10 @@ impl SurfaceExt for XdgSurface {
       _ => false,
     }
   }
-  fn set_resizing(&self, resizing: bool) {
+  fn set_resizing(&self, resizing: bool) -> u32 {
     match self.get_type() {
-      Toplevel(_) => unsafe {
-        wlr_xdg_toplevel_set_resizing(self.0, resizing);
-      },
-      _ => {}
+      Toplevel(_) => unsafe { wlr_xdg_toplevel_set_resizing(self.0, resizing) },
+      _ => 0,
     }
   }
 
@@ -202,6 +192,16 @@ wayland_listener!(
     destroy => destroy_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
       handler.destroy();
+    };
+    commit => commit_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      if let Some(window) = handler.window.upgrade() {
+        if let Surface::Xdg(ref xdg_surface) = window.surface {
+          handler.commit(WindowCommitEvent {
+            serial: (*xdg_surface.0).configure_serial,
+          });
+        }
+      }
     };
     request_move => request_move_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
@@ -267,6 +267,7 @@ impl XdgEventHandler {
       event_manager.map(&mut (*xdg_surface).events.map);
       event_manager.unmap(&mut (*xdg_surface).events.unmap);
       event_manager.destroy(&mut (*xdg_surface).events.destroy);
+      event_manager.commit(&mut (*(*xdg_surface).surface).events.commit);
 
       match XdgSurface(xdg_surface).get_type() {
         Toplevel(toplevel) => {

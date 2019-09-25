@@ -2,9 +2,7 @@ use crate::geometry::*;
 use crate::input::cursor::CursorManager;
 use crate::output_manager::OutputManager;
 use crate::surface::{Surface, SurfaceEventManager, SurfaceExt};
-use crate::window::{
-  WindowEventHandler, WindowFullscreenEvent, WindowMaximizeEvent, WindowResizeEvent,
-};
+use crate::window::*;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::{WindowManager, WindowManagerExt};
 use log::{debug, info};
@@ -15,6 +13,10 @@ use std::pin::Pin;
 use std::rc::Rc;
 use wayland_sys::server::wl_display;
 use wlroots_sys::*;
+
+/// As XWayland does not support serials we use this constant value
+/// as a ponyfill
+const CONFIGURE_SERIAL: u32 = 1;
 
 #[derive(PartialEq, Eq)]
 pub struct XwaylandSurface(*mut wlr_xwayland_surface);
@@ -76,7 +78,7 @@ impl SurfaceExt for XwaylandSurface {
     }
   }
 
-  fn resize(&self, size: Size) {
+  fn resize(&self, size: Size) -> u32 {
     unsafe {
       wlr_xwayland_surface_configure(
         self.0,
@@ -85,6 +87,7 @@ impl SurfaceExt for XwaylandSurface {
         size.width as u16,
         size.height as u16,
       );
+      CONFIGURE_SERIAL
     }
   }
 
@@ -95,32 +98,37 @@ impl SurfaceExt for XwaylandSurface {
   fn activated(&self) -> bool {
     false
   }
-  fn set_activated(&self, activated: bool) {
+  fn set_activated(&self, activated: bool) -> u32 {
     unsafe {
       wlr_xwayland_surface_activate(self.0, activated);
+      CONFIGURE_SERIAL
     }
   }
 
   fn maximized(&self) -> bool {
     unsafe { (*self.0).maximized_vert && (*self.0).maximized_horz }
   }
-  fn set_maximized(&self, maximized: bool) {
+  fn set_maximized(&self, maximized: bool) -> u32 {
     unsafe {
       wlr_xwayland_surface_set_maximized(self.0, maximized);
+      CONFIGURE_SERIAL
     }
   }
   fn fullscreen(&self) -> bool {
     unsafe { (*self.0).fullscreen }
   }
-  fn set_fullscreen(&self, fullscreen: bool) {
+  fn set_fullscreen(&self, fullscreen: bool) -> u32 {
     unsafe {
       wlr_xwayland_surface_set_fullscreen(self.0, fullscreen);
+      CONFIGURE_SERIAL
     }
   }
   fn resizing(&self) -> bool {
     false
   }
-  fn set_resizing(&self, _resizing: bool) {}
+  fn set_resizing(&self, _resizing: bool) -> u32 {
+    CONFIGURE_SERIAL
+  }
 
   fn ask_client_to_close(&self) {
     unsafe {
@@ -144,6 +152,12 @@ wayland_listener!(
     destroy => destroy_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
       handler.destroy();
+    };
+    commit => commit_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.commit(WindowCommitEvent {
+        serial: CONFIGURE_SERIAL,
+      });
     };
     request_move => request_move_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
@@ -198,6 +212,7 @@ impl XwaylandEventHandler {
       event_manager.map(&mut xwayland_surface.events.map);
       event_manager.unmap(&mut xwayland_surface.events.unmap);
       event_manager.destroy(&mut xwayland_surface.events.destroy);
+      event_manager.commit(&mut (*xwayland_surface.surface).events.commit);
       event_manager.request_move(&mut xwayland_surface.events.request_move);
       event_manager.request_resize(&mut xwayland_surface.events.request_resize);
       event_manager.request_maximize(&mut xwayland_surface.events.request_maximize);

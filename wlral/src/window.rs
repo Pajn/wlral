@@ -6,8 +6,13 @@ use crate::window_management_policy::*;
 use crate::window_manager::WindowManager;
 use std::cell::RefCell;
 use std::cmp::PartialEq;
+use std::collections::BTreeMap;
 use std::rc::{Rc, Weak};
 use wlroots_sys::*;
+
+pub struct PendingUpdate {
+  top_left: Point,
+}
 
 pub struct Window {
   pub(crate) window_manager: Rc<RefCell<WindowManager>>,
@@ -15,6 +20,8 @@ pub struct Window {
   pub(crate) surface: Surface,
   pub(crate) mapped: RefCell<bool>,
   pub(crate) top_left: RefCell<Point>,
+
+  pub(crate) pending_updates: RefCell<BTreeMap<u32, PendingUpdate>>,
 
   pub(crate) event_manager: RefCell<Option<SurfaceEventManager>>,
 }
@@ -77,6 +84,19 @@ impl Window {
     buffer_rect + self.position_displacement()
   }
 
+  /// Atomically updates position and size
+  ///
+  /// As size updates have to be communicated to the client,
+  /// this will not cause an immediately observable effect.
+  pub fn set_extents(&self, extents: &Rectangle) {
+    self.pending_updates.borrow_mut().insert(
+      self.surface.resize(extents.size),
+      PendingUpdate {
+        top_left: extents.top_left(),
+      },
+    );
+  }
+
   pub fn move_to(&self, top_left: Point) {
     *self.top_left.borrow_mut() = top_left;
 
@@ -84,7 +104,7 @@ impl Window {
   }
 
   pub fn resize(&self, size: Size) {
-    self.surface.resize(size)
+    self.surface.resize(size);
   }
 
   pub fn activated(&self) -> bool {
@@ -94,26 +114,26 @@ impl Window {
     self.surface.can_receive_focus()
   }
   pub fn set_activated(&self, activated: bool) {
-    self.surface.set_activated(activated)
+    self.surface.set_activated(activated);
   }
 
   pub fn maximized(&self) -> bool {
     self.surface.maximized()
   }
   pub fn set_maximized(&self, maximized: bool) {
-    self.surface.set_maximized(maximized)
+    self.surface.set_maximized(maximized);
   }
   pub fn fullscreen(&self) -> bool {
     self.surface.fullscreen()
   }
   pub fn set_fullscreen(&self, fullscreen: bool) {
-    self.surface.set_fullscreen(fullscreen)
+    self.surface.set_fullscreen(fullscreen);
   }
   pub fn resizing(&self) -> bool {
     self.surface.resizing()
   }
   pub fn set_resizing(&self, resizing: bool) {
-    self.surface.set_resizing(resizing)
+    self.surface.set_resizing(resizing);
   }
 
   pub fn ask_client_to_close(&self) {
@@ -125,6 +145,10 @@ impl PartialEq for Window {
   fn eq(&self, other: &Window) -> bool {
     self.surface == other.surface
   }
+}
+
+pub(crate) struct WindowCommitEvent {
+  pub(crate) serial: u32,
 }
 
 pub(crate) struct WindowResizeEvent {
@@ -175,6 +199,17 @@ impl WindowEventHandler {
         .window_manager
         .borrow_mut()
         .destroy_window(window.clone());
+    }
+  }
+
+  pub(crate) fn commit(&mut self, event: WindowCommitEvent) {
+    if let Some(window) = self.window.upgrade() {
+      match window.pending_updates.borrow_mut().remove(&event.serial) {
+        Some(update) => {
+          window.move_to(update.top_left);
+        }
+        _ => {}
+      }
     }
   }
 

@@ -3,6 +3,7 @@ use crate::surface::{Surface, SurfaceExt};
 use crate::window::Window;
 use log::warn;
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 use wlroots_sys::*;
 
@@ -127,6 +128,7 @@ impl WindowManagerExt for Rc<RefCell<WindowManager>> {
       surface,
       mapped: RefCell::new(false),
       top_left: RefCell::new(Point::ZERO),
+      pending_updates: RefCell::new(BTreeMap::new()),
       event_manager: RefCell::new(None),
     });
     // If the window can receive focus, add it to the back so that

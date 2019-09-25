@@ -104,16 +104,17 @@ impl WindowManagementPolicy for FloatingWindowManager {
           request.window.extents(),
         );
         request.window.set_maximized(true);
-        request.window.move_to(output.top_left());
-        request.window.resize(output.size());
+        request.window.set_extents(&Rectangle {
+          top_left: output.top_left(),
+          size: output.size(),
+        });
       } else {
         request.window.set_maximized(false);
         if let Some(extents) = self
           .restore_size
           .get(&(request.window.wlr_surface() as usize))
         {
-          request.window.move_to(extents.top_left());
-          request.window.resize(extents.size());
+          request.window.set_extents(extents);
         }
       }
     }
@@ -131,16 +132,17 @@ impl WindowManagementPolicy for FloatingWindowManager {
           request.window.extents(),
         );
         request.window.set_fullscreen(true);
-        request.window.move_to(output.top_left());
-        request.window.resize(output.size());
+        request.window.set_extents(&Rectangle {
+          top_left: output.top_left(),
+          size: output.size(),
+        });
       } else {
         request.window.set_fullscreen(false);
         if let Some(extents) = self
           .restore_size
           .get(&(request.window.wlr_surface() as usize))
         {
-          request.window.move_to(extents.top_left());
-          request.window.resize(extents.size());
+          request.window.set_extents(extents);
         }
       }
     }
@@ -174,8 +176,7 @@ impl EventFilter for FloatingWindowManager {
           extents.size.width += displacement.dx;
         }
 
-        gesture.window.move_to(extents.top_left);
-        gesture.window.resize(extents.size);
+        gesture.window.set_extents(&extents);
 
         true
       }
