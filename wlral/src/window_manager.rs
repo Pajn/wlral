@@ -148,8 +148,7 @@ mod tests {
   use super::*;
   use crate::input::cursor::MockCursorManager;
   use crate::output_manager::MockOutputManager;
-  use crate::test_util::*;
-  use crate::window::WindowEvents;
+  use crate::window::WindowEventHandler;
   use crate::window_management_policy::WmPolicyManager;
   use std::ptr;
   use std::rc::Rc;
@@ -161,31 +160,21 @@ mod tests {
     let window_manager = Rc::new(RefCell::new(WindowManager::init(ptr::null_mut())));
     let window = window_manager.new_window(Surface::Null);
 
-    let map_signal = WlSignal::new();
-    let unmap_signal = WlSignal::new();
-    let destroy_signal = WlSignal::new();
-
-    window.bind_events(
+    let mut event_handler = WindowEventHandler {
       wm_policy_manager,
-      Rc::new(RefCell::new(MockOutputManager::default())),
-      window_manager.clone(),
-      cursor_manager.clone(),
-      |event_manager| unsafe {
-        event_manager.map(map_signal.ptr());
-        event_manager.unmap(unmap_signal.ptr());
-        event_manager.destroy(destroy_signal.ptr());
-      },
-    );
+      output_manager: Rc::new(RefCell::new(MockOutputManager::default())),
+      window_manager: window_manager.clone(),
+      cursor_manager: cursor_manager.clone(),
+      window: Rc::downgrade(&window),
+    };
 
     let weak_window = Rc::downgrade(&window);
     drop(window);
 
     assert!(weak_window.upgrade().is_some());
-    assert!(destroy_signal.listener_count() == 1);
 
-    destroy_signal.emit();
+    event_handler.destroy();
 
-    assert!(destroy_signal.listener_count() == 0);
     assert!(window_manager.borrow().windows.len() == 0);
     assert!(weak_window.upgrade().is_none());
   }
