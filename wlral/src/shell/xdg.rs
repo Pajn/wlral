@@ -7,6 +7,7 @@ use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::{WindowManager, WindowManagerExt};
 use log::debug;
 use std::cell::RefCell;
+use std::ffi::CStr;
 use std::pin::Pin;
 use std::rc::Rc;
 use wayland_sys::server::wl_display;
@@ -161,6 +162,31 @@ impl SurfaceExt for XdgSurface {
     match self.get_type() {
       Toplevel(_) => unsafe { wlr_xdg_toplevel_set_resizing(self.0, resizing) },
       _ => 0,
+    }
+  }
+
+  fn app_id(&self) -> Option<String> {
+    match self.get_type() {
+      Toplevel(toplevel) => unsafe {
+        Some(
+          CStr::from_ptr((*toplevel).app_id)
+            .to_string_lossy()
+            .into_owned(),
+        )
+      },
+      _ => None,
+    }
+  }
+  fn title(&self) -> Option<String> {
+    match self.get_type() {
+      Toplevel(toplevel) => unsafe {
+        Some(
+          CStr::from_ptr((*toplevel).title)
+            .to_string_lossy()
+            .into_owned(),
+        )
+      },
+      _ => None,
     }
   }
 

@@ -130,6 +130,25 @@ impl SurfaceExt for XwaylandSurface {
     CONFIGURE_SERIAL
   }
 
+  fn app_id(&self) -> Option<String> {
+    unsafe {
+      Some(
+        CStr::from_ptr((*self.0).class)
+          .to_string_lossy()
+          .into_owned(),
+      )
+    }
+  }
+  fn title(&self) -> Option<String> {
+    unsafe {
+      Some(
+        CStr::from_ptr((*self.0).title)
+          .to_string_lossy()
+          .into_owned(),
+      )
+    }
+  }
+
   fn ask_client_to_close(&self) {
     unsafe {
       wlr_xwayland_surface_close(self.0);

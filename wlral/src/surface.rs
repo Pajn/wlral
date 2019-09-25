@@ -52,6 +52,9 @@ pub(crate) trait SurfaceExt {
   /// Returns the associated configure serial
   fn set_resizing(&self, resizing: bool) -> u32;
 
+  fn app_id(&self) -> Option<String>;
+  fn title(&self) -> Option<String>;
+
   fn ask_client_to_close(&self);
 }
 
@@ -190,6 +193,23 @@ impl SurfaceExt for Surface {
       Xwayland(surface) => surface.set_resizing(resizing),
       #[cfg(test)]
       Null => 1,
+    }
+  }
+
+  fn app_id(&self) -> Option<String> {
+    match self {
+      Xdg(surface) => surface.app_id(),
+      Xwayland(surface) => surface.app_id(),
+      #[cfg(test)]
+      Null => None,
+    }
+  }
+  fn title(&self) -> Option<String> {
+    match self {
+      Xdg(surface) => surface.title(),
+      Xwayland(surface) => surface.title(),
+      #[cfg(test)]
+      Null => None,
     }
   }
 

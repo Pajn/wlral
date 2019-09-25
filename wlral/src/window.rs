@@ -136,6 +136,13 @@ impl Window {
     self.surface.set_resizing(resizing);
   }
 
+  pub fn app_id(&self) -> Option<String> {
+    self.surface.app_id()
+  }
+  pub fn title(&self) -> Option<String> {
+    self.surface.title()
+  }
+
   pub fn ask_client_to_close(&self) {
     self.surface.ask_client_to_close()
   }
