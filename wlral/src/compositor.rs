@@ -7,6 +7,7 @@ use crate::shell::xdg::*;
 use crate::shell::xwayland::*;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::WindowManager;
+use log::debug;
 use std::cell::RefCell;
 use std::env;
 use std::ffi::{CStr, CString};
@@ -37,7 +38,7 @@ pub struct Compositor {
 }
 
 impl Compositor {
-  pub fn init() -> Result<Compositor, u32> {
+  pub fn init() -> Compositor {
     let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
 
     unsafe {
@@ -137,15 +138,9 @@ impl Compositor {
       let socket_name = CStr::from_ptr(socket).to_string_lossy().into_owned();
       env::set_var("_WAYLAND_DISPLAY", socket_name.clone());
 
-      // Start the backend. This will enumerate outputs and inputs, become the DRM
-      // master, etc
-      if !wlr_backend_start(backend) {
-        wlr_backend_destroy(backend);
-        ffi_dispatch!(WAYLAND_SERVER_HANDLE, wl_display_destroy, display);
-        return Err(2);
-      }
+      debug!("Compositor::init");
 
-      Ok(Compositor {
+      Compositor {
         display,
         backend,
         renderer,
@@ -164,7 +159,7 @@ impl Compositor {
 
         wm_policy_manager,
         event_filter_manager,
-      })
+      }
     }
   }
 
@@ -187,7 +182,7 @@ impl Compositor {
       .add_event_filter(filter)
   }
 
-  pub fn run<T>(self, window_management_policy: T)
+  pub fn run<T>(self, window_management_policy: T) -> Result<(), u32>
   where
     T: 'static + WindowManagementPolicy + EventFilter,
   {
@@ -201,7 +196,17 @@ impl Compositor {
       .borrow_mut()
       .add_event_filter(Box::new(window_management_policy));
 
+    debug!("Compositor::run");
+
     unsafe {
+      // Start the backend. This will enumerate outputs and inputs, become the DRM
+      // master, etc
+      if !wlr_backend_start(self.backend) {
+        wlr_backend_destroy(self.backend);
+        ffi_dispatch!(WAYLAND_SERVER_HANDLE, wl_display_destroy, self.display);
+        return Err(2);
+      }
+
       // if (startup_cmd) {
       //   if (fork() == 0) {
       //     execl("/bin/sh", "/bin/sh", "-c", startup_cmd, (void *)NULL);
@@ -224,5 +229,6 @@ impl Compositor {
       );
       ffi_dispatch!(WAYLAND_SERVER_HANDLE, wl_display_destroy, self.display);
     }
+    Ok(())
   }
 }
