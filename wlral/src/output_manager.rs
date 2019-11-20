@@ -1,5 +1,5 @@
 use crate::output::{Output, OutputEventManager};
-use crate::window_management_policy::WmPolicyManager;
+use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::WindowManager;
 use log::debug;
 use std::cell::RefCell;
@@ -119,7 +119,12 @@ impl OutputManagerImpl {
 
     *output.event_manager.borrow_mut() = Some(event_manager);
 
-    self.outputs.push(output);
+    self.outputs.push(output.clone());
+
+    self
+      .wm_policy_manager
+      .borrow_mut()
+      .advise_output_create(output);
   }
 
   pub(crate) fn destroy_output(&mut self, destroyed_output: &Output) {
