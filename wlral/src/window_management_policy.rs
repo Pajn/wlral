@@ -53,6 +53,7 @@ pub trait WindowManagementPolicy {
   fn handle_request_minimize(&mut self, _window: Rc<Window>) {}
 
   fn advise_output_create(&mut self, _output: Rc<Output>) {}
+  fn advise_output_update(&mut self, _output: Rc<Output>) {}
   fn advise_output_delete(&mut self, _output: Rc<Output>) {}
 }
 
@@ -119,6 +120,11 @@ impl WindowManagementPolicy for WmPolicyManager {
   fn advise_output_create(&mut self, output: Rc<Output>) {
     if let Some(ref mut policy) = self.policy {
       policy.borrow_mut().advise_output_create(output)
+    }
+  }
+  fn advise_output_update(&mut self, output: Rc<Output>) {
+    if let Some(ref mut policy) = self.policy {
+      policy.borrow_mut().advise_output_update(output)
     }
   }
   fn advise_output_delete(&mut self, output: Rc<Output>) {

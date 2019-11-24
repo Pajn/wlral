@@ -45,6 +45,14 @@ impl Output {
     }
   }
 
+  /// Sets a custom mode on the output. If modes are available, they are preferred.
+  /// Setting `refresh` to zero lets the backend pick a preferred value.
+  pub fn set_custom_mode(&self, size: Size, refresh: i32) {
+    unsafe {
+      wlr_output_set_custom_mode(self.output, size.width(), size.height(), refresh);
+    }
+  }
+
   pub fn top_left(&self) -> Point {
     let mut x = 0.0;
     let mut y = 0.0;
@@ -148,8 +156,18 @@ impl Output {
   }
 }
 
+impl PartialEq for Output {
+  fn eq(&self, other: &Output) -> bool {
+    self.output == other.output
+  }
+}
+
 pub(crate) trait OutputEventHandler {
   fn frame(&self);
+  fn enable(&self);
+  fn mode(&self);
+  fn scale(&self);
+  fn transform(&self);
   fn destroy(self);
 }
 
@@ -196,6 +214,35 @@ impl OutputEventHandler for Rc<Output> {
     }
   }
 
+  fn enable(&self) {
+    debug!("output enable event");
+    self
+      .wm_policy_manager
+      .borrow_mut()
+      .advise_output_update(self.clone());
+  }
+  fn mode(&self) {
+    debug!("output mode event");
+    self
+      .wm_policy_manager
+      .borrow_mut()
+      .advise_output_update(self.clone());
+  }
+  fn scale(&self) {
+    debug!("output scale event");
+    self
+      .wm_policy_manager
+      .borrow_mut()
+      .advise_output_update(self.clone());
+  }
+  fn transform(&self) {
+    debug!("output transform event");
+    self
+      .wm_policy_manager
+      .borrow_mut()
+      .advise_output_update(self.clone());
+  }
+
   fn destroy(self) {
     debug!("destroy output");
     self
@@ -207,12 +254,32 @@ impl OutputEventHandler for Rc<Output> {
 }
 
 wayland_listener!(
-  pub OutputEventManager,
+  pub(crate) OutputEventManager,
   Weak<Output>,
   [
     frame => frame_func: |this: &mut OutputEventManager, _data: *mut libc::c_void,| unsafe {
       if let Some(handler) = this.data.upgrade() {
         handler.frame();
+      }
+    };
+    enable => enable_func: |this: &mut OutputEventManager, _data: *mut libc::c_void,| unsafe {
+      if let Some(handler) = this.data.upgrade() {
+        handler.enable();
+      }
+    };
+    mode => mode_func: |this: &mut OutputEventManager, _data: *mut libc::c_void,| unsafe {
+      if let Some(handler) = this.data.upgrade() {
+        handler.mode();
+      }
+    };
+    scale => scale_func: |this: &mut OutputEventManager, _data: *mut libc::c_void,| unsafe {
+      if let Some(handler) = this.data.upgrade() {
+        handler.scale();
+      }
+    };
+    transform => transform_func: |this: &mut OutputEventManager, _data: *mut libc::c_void,| unsafe {
+      if let Some(handler) = this.data.upgrade() {
+        handler.transform();
       }
     };
     destroy => destroy_func: |this: &mut OutputEventManager, _data: *mut libc::c_void,| unsafe {
@@ -223,7 +290,7 @@ wayland_listener!(
   ]
 );
 
-pub trait OutputEvents {
+pub(crate) trait OutputEvents {
   fn bind_events(&self);
 }
 
@@ -233,6 +300,10 @@ impl OutputEvents for Rc<Output> {
 
     unsafe {
       event_manager.frame(&mut (*self.output).events.frame);
+      event_manager.enable(&mut (*self.output).events.enable);
+      event_manager.mode(&mut (*self.output).events.mode);
+      event_manager.scale(&mut (*self.output).events.scale);
+      event_manager.transform(&mut (*self.output).events.transform);
       event_manager.destroy(&mut (*self.output).events.destroy);
     }
 

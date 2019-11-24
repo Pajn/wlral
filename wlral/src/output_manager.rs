@@ -1,4 +1,4 @@
-use crate::output::{Output, OutputEventManager};
+use crate::output::{Output, OutputEvents};
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::WindowManager;
 use log::debug;
@@ -110,14 +110,7 @@ impl OutputManagerImpl {
 
     let output = Rc::new(output);
 
-    let mut event_manager = OutputEventManager::new(Rc::downgrade(&output));
-
-    unsafe {
-      event_manager.frame(&mut (*output.raw_ptr()).events.frame);
-      event_manager.destroy(&mut (*output.raw_ptr()).events.destroy);
-    }
-
-    *output.event_manager.borrow_mut() = Some(event_manager);
+    output.bind_events();
 
     self.outputs.push(output.clone());
 
