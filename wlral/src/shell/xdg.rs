@@ -9,6 +9,7 @@ use log::debug;
 use std::cell::RefCell;
 use std::ffi::CStr;
 use std::pin::Pin;
+use std::ptr::NonNull;
 use std::rc::Rc;
 use wayland_sys::server::wl_display;
 use wlroots_sys::*;
@@ -168,10 +169,10 @@ impl SurfaceExt for XdgSurface {
   fn app_id(&self) -> Option<String> {
     match self.get_type() {
       Toplevel(toplevel) => unsafe {
-        Some(
-          CStr::from_ptr((*toplevel).app_id)
+        NonNull::new((*toplevel).app_id).map(|app_id|
+          CStr::from_ptr(app_id.as_ptr())
             .to_string_lossy()
-            .into_owned(),
+            .into_owned()
         )
       },
       _ => None,
@@ -180,10 +181,10 @@ impl SurfaceExt for XdgSurface {
   fn title(&self) -> Option<String> {
     match self.get_type() {
       Toplevel(toplevel) => unsafe {
-        Some(
-          CStr::from_ptr((*toplevel).title)
+        NonNull::new((*toplevel).title).map(|title|
+          CStr::from_ptr(title.as_ptr())
             .to_string_lossy()
-            .into_owned(),
+            .into_owned()
         )
       },
       _ => None,
