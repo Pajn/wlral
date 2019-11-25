@@ -12,7 +12,7 @@ pub use wayland_sys::{
   uid_t, *,
 };
 
-#[allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
+#[allow(non_camel_case_types, non_snake_case, non_upper_case_globals, invalid_value)]
 mod generated {
   use libc;
   include!("gen.rs");

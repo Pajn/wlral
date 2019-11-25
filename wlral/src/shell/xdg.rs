@@ -169,11 +169,11 @@ impl SurfaceExt for XdgSurface {
   fn app_id(&self) -> Option<String> {
     match self.get_type() {
       Toplevel(toplevel) => unsafe {
-        NonNull::new((*toplevel).app_id).map(|app_id|
+        NonNull::new((*toplevel).app_id).map(|app_id| {
           CStr::from_ptr(app_id.as_ptr())
             .to_string_lossy()
             .into_owned()
-        )
+        })
       },
       _ => None,
     }
@@ -181,11 +181,11 @@ impl SurfaceExt for XdgSurface {
   fn title(&self) -> Option<String> {
     match self.get_type() {
       Toplevel(toplevel) => unsafe {
-        NonNull::new((*toplevel).title).map(|title|
+        NonNull::new((*toplevel).title).map(|title| {
           CStr::from_ptr(title.as_ptr())
             .to_string_lossy()
             .into_owned()
-        )
+        })
       },
       _ => None,
     }

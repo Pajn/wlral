@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::{env, fs, io};
 
-#[allow(unreachable_code)]
 fn main() {
   meson();
 

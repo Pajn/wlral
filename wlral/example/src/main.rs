@@ -221,7 +221,7 @@ impl EventFilter for FloatingWindowManager {
 fn main() {
   env_logger::init();
 
-  let compositor = Compositor::init().expect("Could not initialize compositor");
+  let compositor = Compositor::init();
   let window_manager = FloatingWindowManager {
     output_manager: compositor.output_manager(),
     window_manager: compositor.window_manager(),
@@ -229,5 +229,5 @@ fn main() {
     gesture: None,
     restore_size: BTreeMap::new(),
   };
-  compositor.run(window_manager);
+  compositor.run(window_manager).expect("Could not run compositor");
 }

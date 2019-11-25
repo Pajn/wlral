@@ -111,13 +111,13 @@ macro_rules! wayland_listener {
             // * Need to pass a pointer to wl_list_init
             // * The list is initialized by Wayland, which doesn't "drop"
             // * The listener is written to without dropping any of the data
-            let mut listener: $crate::wayland_sys::server::wl_listener = ::std::mem::zeroed();
+            let mut listener: ::std::mem::MaybeUninit<$crate::wayland_sys::server::wl_listener> = ::std::mem::MaybeUninit::uninit();
             use $crate::wayland_sys::{ffi_dispatch, server::WAYLAND_SERVER_HANDLE};
             ffi_dispatch!(WAYLAND_SERVER_HANDLE,
                           wl_list_init,
-                          &mut listener.link as *mut _ as _);
-            ::std::ptr::write(&mut listener.notify, $struct_name::$listener_func);
-            listener
+                          &mut (*listener.as_mut_ptr()).link as *mut _ as _);
+            (*listener.as_mut_ptr()).notify = $struct_name::$listener_func;
+            listener.assume_init()
           });
           $crate::wayland_sys::server::signal::wl_signal_add(
             signal,
