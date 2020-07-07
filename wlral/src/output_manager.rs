@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::time::Instant;
+use wayland_sys::server::wl_display;
 use wlroots_sys::*;
 
 #[cfg(test)]
@@ -48,6 +49,8 @@ pub struct OutputManagerImpl {
   window_manager: Rc<RefCell<WindowManager>>,
   renderer: *mut wlr_renderer,
   output_layout: *mut wlr_output_layout,
+  #[allow(unused)]
+  xdg_output_manager_v1: *mut wlr_xdg_output_manager_v1,
   outputs: Vec<Rc<Output>>,
 
   event_manager: Option<Pin<Box<OutputManagerEventManager>>>,
@@ -63,15 +66,19 @@ impl OutputManagerImpl {
   pub(crate) fn init(
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
     window_manager: Rc<RefCell<WindowManager>>,
+    display: *mut wl_display,
     backend: *mut wlr_backend,
     renderer: *mut wlr_renderer,
     output_layout: *mut wlr_output_layout,
   ) -> Rc<RefCell<OutputManagerImpl>> {
+    let xdg_output_manager_v1 = unsafe { wlr_xdg_output_manager_v1_create(display, output_layout) };
+
     let output_manager = Rc::new(RefCell::new(OutputManagerImpl {
       wm_policy_manager,
       window_manager,
       renderer,
       output_layout,
+      xdg_output_manager_v1,
       outputs: vec![],
 
       event_manager: None,
@@ -143,6 +150,7 @@ mod tests {
       window_manager: window_manager.clone(),
       renderer: ptr::null_mut(),
       output_layout: ptr::null_mut(),
+      xdg_output_manager_v1: ptr::null_mut(),
       outputs: vec![],
 
       event_manager: None,

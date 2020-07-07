@@ -18,7 +18,6 @@ pub struct Keyboard {
   keyboard: *mut wlr_keyboard,
   xkb_state: xkb::State,
 
-  #[allow(unused)]
   event_manager: RefCell<Option<Pin<Box<KeyboardEventManager>>>>,
 }
 

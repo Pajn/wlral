@@ -7,7 +7,7 @@ use wlral::input::event_filter::EventFilter;
 use wlral::input::events::*;
 use wlral::output::Output;
 use wlral::output_manager::OutputManager;
-use wlral::window::Window;
+use wlral::window::{Window, WindowEdge};
 use wlral::window_management_policy::*;
 use wlral::window_manager::WindowManager;
 use xkbcommon::xkb;
@@ -229,5 +229,7 @@ fn main() {
     gesture: None,
     restore_size: BTreeMap::new(),
   };
-  compositor.run(window_manager).expect("Could not run compositor");
+  compositor
+    .run(window_manager)
+    .expect("Could not run compositor");
 }

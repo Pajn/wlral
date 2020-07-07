@@ -1,19 +1,8 @@
 use crate::geometry::FPoint;
 use crate::output::Output;
-use crate::window::Window;
-use bitflags::bitflags;
+use crate::window::{Window, WindowEdge};
 use std::cell::RefCell;
 use std::rc::Rc;
-
-bitflags! {
-  pub struct WindowEdge: u32 {
-    const NONE   = 0b0000;
-    const TOP    = 0b0001;
-    const BOTTOM = 0b0010;
-    const LEFT   = 0b0100;
-    const RIGHT  = 0b1000;
-  }
-}
 
 pub struct MoveRequest {
   pub window: Rc<Window>,
@@ -42,6 +31,7 @@ pub struct FullscreenRequest {
 pub trait WindowManagementPolicy {
   fn handle_window_ready(&mut self, _window: Rc<Window>) {}
   fn advise_new_window(&mut self, _window: Rc<Window>) {}
+  fn advise_configured_window(&mut self, _window: Rc<Window>) {}
   fn advise_delete_window(&mut self, _window: Rc<Window>) {}
 
   /// request from client to initiate move
@@ -83,6 +73,11 @@ impl WindowManagementPolicy for WmPolicyManager {
   fn advise_new_window(&mut self, window: Rc<Window>) {
     if let Some(ref mut policy) = self.policy {
       policy.borrow_mut().advise_new_window(window)
+    }
+  }
+  fn advise_configured_window(&mut self, window: Rc<Window>) {
+    if let Some(ref mut policy) = self.policy {
+      policy.borrow_mut().advise_configured_window(window)
     }
   }
   fn advise_delete_window(&mut self, window: Rc<Window>) {

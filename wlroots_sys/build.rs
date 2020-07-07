@@ -123,7 +123,6 @@ fn meson() {}
 #[cfg(feature = "static")]
 fn meson() {
   let build_path = PathBuf::from(env::var("OUT_DIR").expect("Could not get OUT_DIR env variable"));
-  build_path.join("build");
   let build_path_str = build_path
     .to_str()
     .expect("Could not turn build path into a string");
@@ -165,10 +164,10 @@ fn meson() {
   } else {
     panic!("The `wlroots` submodule does not exist");
   }
-}
+} 
 
 /// Gets the unstable and stable protocols in /usr/share-wayland-protocols and
-/// generates server headers for them.
+/// in wlroots/protocol.
 ///
 /// The path to the folder with the generated headers is returned. It will
 /// have two directories, `stable`, and `unstable`.
@@ -204,43 +203,54 @@ fn generate_protocol_headers() -> io::Result<PathBuf> {
         .unwrap();
     }
   }
+  for entry in fs::read_dir("./wlroots/protocol")? {
+    let entry = entry?;
+    let path = entry.path();
+    let mut filename = entry.file_name().into_string().unwrap();
+    if filename.ends_with(".xml") {
+      let new_length = filename.len() - 4;
+      filename.truncate(new_length);
+    } else {
+      continue;
+    }
+    filename.push_str("-protocol");
+    Command::new("wayland-scanner")
+      .arg("server-header")
+      .arg(path.clone())
+      .arg(format!("{}/{}.h", out_path.to_str().unwrap(), filename))
+      .status()
+      .unwrap();
+  }
+
   Ok(out_path)
 }
 
 fn generate_protocols() {
-  let output_dir_str = env::var("OUT_DIR").unwrap();
+  // let output_dir = Path::new(&"src");
 
-  let output_dir = Path::new(&output_dir_str);
+  // let protocols = &[
+  //   (
+  //     "./wlroots/protocol/wlr-layer-shell-unstable-v1.xml",
+  //     "layer_shell",
+  //   ),
+  // ];
 
-  let protocols = &[
-    // ("./wlroots/protocol/server-decoration.xml", "server_decoration"),
-    (
-      "./wlroots/protocol/wlr-gamma-control-unstable-v1.xml",
-      "gamma_control",
-    ),
-    (
-      "./wlroots/protocol/wlr-screencopy-unstable-v1.xml",
-      "screencopy",
-    ),
-    // ("./wlroots/protocol/idle.xml", "idle")
-  ];
-
-  for protocol in protocols {
-    wayland_scanner::generate_code(
-      protocol.0,
-      output_dir.join(format!("{}_server_api.rs", protocol.1)),
-      wayland_scanner::Side::Server,
-    );
-    wayland_scanner::generate_code(
-      protocol.0,
-      output_dir.join(format!("{}_client_api.rs", protocol.1)),
-      wayland_scanner::Side::Client,
-    );
-    // wayland_scanner::generate_interfaces(
-    //     protocol.0,
-    //     output_dir.join(format!("{}_interfaces.rs", protocol.1))
-    // );
-  }
+  // for protocol in protocols {
+  //   wayland_scanner::generate_code(
+  //     protocol.0,
+  //     output_dir.join(format!("{}_server_api.rs", protocol.1)),
+  //     wayland_scanner::Side::Server,
+  //   );
+  //   wayland_scanner::generate_code(
+  //     protocol.0,
+  //     output_dir.join(format!("{}_client_api.rs", protocol.1)),
+  //     wayland_scanner::Side::Client,
+  //   );
+  //   // wayland_scanner::generate_interfaces(
+  //   //     protocol.0,
+  //   //     output_dir.join(format!("{}_interfaces.rs", protocol.1))
+  //   // );
+  // }
 }
 
 fn link_optional_libs() {

@@ -3,6 +3,7 @@ use crate::input::event_filter::*;
 use crate::input::keyboard::*;
 use crate::input::seat::*;
 use crate::output_manager::{OutputManager, OutputManagerImpl};
+use crate::shell::layer::*;
 use crate::shell::xdg::*;
 use crate::shell::xwayland::*;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
@@ -26,6 +27,7 @@ pub struct Compositor {
   output_manager: Rc<RefCell<OutputManagerImpl>>,
 
   window_manager: Rc<RefCell<WindowManager>>,
+  layer_shell_manager: LayerShellManager,
   xdg_manager: XdgManager,
   xwayland_manager: XwaylandManager,
 
@@ -83,6 +85,7 @@ impl Compositor {
       let output_manager = OutputManagerImpl::init(
         wm_policy_manager.clone(),
         window_manager.clone(),
+        display,
         backend,
         renderer,
         output_layout,
@@ -106,6 +109,13 @@ impl Compositor {
         keyboard_manager.clone(),
       );
 
+      let layer_shell_manager = LayerShellManager::init(
+        wm_policy_manager.clone(),
+        output_manager.clone(),
+        window_manager.clone(),
+        cursor_manager.clone(),
+        display,
+      );
       let xdg_manager = XdgManager::init(
         wm_policy_manager.clone(),
         output_manager.clone(),
@@ -150,6 +160,7 @@ impl Compositor {
         output_manager,
 
         window_manager,
+        layer_shell_manager,
         xdg_manager,
         xwayland_manager,
 

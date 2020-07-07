@@ -18,7 +18,7 @@ use wlroots_sys::*;
 /// as a ponyfill
 const CONFIGURE_SERIAL: u32 = 1;
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct XwaylandSurface(*mut wlr_xwayland_surface);
 
 impl XwaylandSurface {
@@ -213,7 +213,7 @@ pub struct XwaylandEventHandler {
 }
 impl XwaylandEventHandler {
   fn new_surface(&mut self, xwayland_surface: *mut wlr_xwayland_surface) {
-    debug!("new_surface");
+    debug!("XwaylandEventHandler::new_surface");
     let window = self
       .window_manager
       .new_window(Surface::Xwayland(XwaylandSurface(xwayland_surface)));
@@ -260,7 +260,7 @@ wayland_listener!(
 );
 
 #[allow(unused)]
-pub struct XwaylandManager {
+pub(crate) struct XwaylandManager {
   xwayland: *mut wlr_xwayland,
 
   event_manager: Pin<Box<XwaylandEventManager>>,

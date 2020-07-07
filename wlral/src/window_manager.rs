@@ -12,6 +12,12 @@ pub struct WindowManager {
   windows: Vec<Rc<Window>>,
 }
 
+impl std::fmt::Debug for WindowManager {
+  fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+    write!(fmt, "WindowManager {{windows: {0}}}", self.windows.len())
+  }
+}
+
 impl WindowManager {
   pub fn init(seat: *mut wlr_seat) -> WindowManager {
     WindowManager {

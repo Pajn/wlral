@@ -21,7 +21,7 @@ enum XdgSurfaceType {
 }
 use XdgSurfaceType::{Popup, Toplevel};
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct XdgSurface(*mut wlr_xdg_surface);
 
 impl XdgSurface {
@@ -77,6 +77,10 @@ impl SurfaceExt for XdgSurface {
   fn parent_displacement(&self) -> Displacement {
     match self.get_type() {
       Popup(popup) => unsafe {
+        if !wlr_surface_is_xdg_surface((*popup).parent) {
+          return Displacement::ZERO;
+        }
+
         let parent = wlr_xdg_surface_from_wlr_surface((*popup).parent);
         let mut parent_geo = Rectangle::ZERO.into();
 
@@ -276,7 +280,7 @@ pub struct XdgEventHandler {
 }
 impl XdgEventHandler {
   fn new_surface(&mut self, xdg_surface: *mut wlr_xdg_surface) {
-    debug!("new_surface");
+    debug!("XdgEventHandler::new_surface");
 
     let window = self
       .window_manager
@@ -331,7 +335,7 @@ wayland_listener!(
 );
 
 #[allow(unused)]
-pub struct XdgManager {
+pub(crate) struct XdgManager {
   xdg_shell: *mut wlr_xdg_shell,
 
   event_manager: Pin<Box<XdgEventManager>>,

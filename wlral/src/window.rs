@@ -4,16 +4,29 @@ use crate::output_manager::OutputManager;
 use crate::surface::{Surface, SurfaceEventManager, SurfaceExt};
 use crate::window_management_policy::*;
 use crate::window_manager::WindowManager;
+use bitflags::bitflags;
 use std::cell::RefCell;
 use std::cmp::PartialEq;
 use std::collections::BTreeMap;
 use std::rc::{Rc, Weak};
 use wlroots_sys::*;
 
+bitflags! {
+  pub struct WindowEdge: u32 {
+    const NONE   = 0b0000;
+    const TOP    = 0b0001;
+    const BOTTOM = 0b0010;
+    const LEFT   = 0b0100;
+    const RIGHT  = 0b1000;
+  }
+}
+
+#[derive(Debug)]
 pub struct PendingUpdate {
   top_left: Point,
 }
 
+#[derive(Debug)]
 pub struct Window {
   pub(crate) window_manager: Rc<RefCell<WindowManager>>,
 
@@ -100,7 +113,7 @@ impl Window {
   pub fn move_to(&self, top_left: Point) {
     *self.top_left.borrow_mut() = top_left;
 
-    self.surface.move_to(top_left)
+    self.surface.move_to(top_left);
   }
 
   pub fn resize(&self, size: Size) {
@@ -217,6 +230,10 @@ impl WindowEventHandler {
         }
         _ => {}
       }
+      self
+        .wm_policy_manager
+        .borrow_mut()
+        .advise_configured_window(window.clone());
     }
   }
 
