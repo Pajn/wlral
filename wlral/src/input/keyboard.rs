@@ -211,6 +211,7 @@ mod tests {
 
     let mut raw_keyboard = wlr_keyboard {
       impl_: ptr::null(),
+      group: ptr::null_mut(),
       keymap_string: ptr::null_mut(),
       keymap_size: 0,
       keymap: ptr::null_mut(),
@@ -231,6 +232,7 @@ mod tests {
         modifiers: new_wl_signal(),
         keymap: new_wl_signal(),
         repeat_info: new_wl_signal(),
+        destroy: new_wl_signal(),
       },
       data: ptr::null_mut(),
     };

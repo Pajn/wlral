@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 bitflags = "1.2.1"
 log = "0.4"
-wlroots-sys = { path = "../wlroots_sys", features = ["static", "unstable"] }
+wlroots-sys = { path = "../wlroots_sys", features = ["unstable"] }
 wayland-sys = "0.24.0"
 wayland-server = "0.24.0"
 xkbcommon = "0.4.0"

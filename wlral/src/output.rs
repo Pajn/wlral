@@ -3,7 +3,6 @@ use crate::output_manager::OutputManagerImpl;
 use crate::window::Window;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::WindowManager;
-use log::debug;
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::ptr;
@@ -29,28 +28,38 @@ impl Output {
     self.output
   }
 
-  pub fn use_preferred_mode(&self) {
+  pub fn use_preferred_mode(&self) -> Result<(), ()> {
     unsafe {
       // Some backends don't have modes. DRM+KMS does, and we need to set a mode
       // before we can use the output. The mode is a tuple of (width, height,
       // refresh rate), and each monitor supports only a specific set of modes. We
       // just pick the first, a more sophisticated compositor would let the user
       // configure it or pick the mode the display advertises as preferred.
-      let length = ffi_dispatch!(WAYLAND_SERVER_HANDLE, wl_list_length, &(*self.output).modes);
-      if length > 0 {
-        let mode: *mut wlr_output_mode =
-          container_of!((*self.output).modes.prev, wlr_output_mode, link);
+      let mode = wlr_output_preferred_mode(self.output);
+      if !mode.is_null() {
         wlr_output_set_mode(self.output, mode);
       }
+      
+      wlr_output_enable(self.output, true);
+      if !wlr_output_commit(self.output) {
+        return Err(());
+      }
     }
+    Ok(())
   }
 
   /// Sets a custom mode on the output. If modes are available, they are preferred.
   /// Setting `refresh` to zero lets the backend pick a preferred value.
-  pub fn set_custom_mode(&self, size: Size, refresh: i32) {
+  pub fn set_custom_mode(&self, size: Size, refresh: i32) -> Result<(), ()> {
     unsafe {
       wlr_output_set_custom_mode(self.output, size.width(), size.height(), refresh);
+      
+      wlr_output_enable(self.output, true);
+      if !wlr_output_commit(self.output) {
+        return Err(());
+      }
     }
+    Ok(())
   }
 
   pub fn top_left(&self) -> Point {
@@ -215,28 +224,24 @@ impl OutputEventHandler for Rc<Output> {
   }
 
   fn enable(&self) {
-    debug!("output enable event");
     self
       .wm_policy_manager
       .borrow_mut()
       .advise_output_update(self.clone());
   }
   fn mode(&self) {
-    debug!("output mode event");
     self
       .wm_policy_manager
       .borrow_mut()
       .advise_output_update(self.clone());
   }
   fn scale(&self) {
-    debug!("output scale event");
     self
       .wm_policy_manager
       .borrow_mut()
       .advise_output_update(self.clone());
   }
   fn transform(&self) {
-    debug!("output transform event");
     self
       .wm_policy_manager
       .borrow_mut()
@@ -244,7 +249,6 @@ impl OutputEventHandler for Rc<Output> {
   }
 
   fn destroy(self) {
-    debug!("destroy output");
     self
       .wm_policy_manager
       .borrow_mut()

@@ -1,11 +1,11 @@
 use crate::output::{Output, OutputEvents};
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::WindowManager;
-use log::debug;
+use log::{debug, error};
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::time::Instant;
+use std::{ffi::CStr, time::Instant};
 use wayland_sys::server::wl_display;
 use wlroots_sys::*;
 
@@ -98,9 +98,17 @@ impl OutputManagerImpl {
   }
 
   fn new_output(&mut self, output: Output) {
-    debug!("new_output");
+    let description: &CStr = unsafe { CStr::from_ptr((*output.raw_ptr()).description) };
 
-    output.use_preferred_mode();
+    debug!("OutputManager::new_output: {0}", description.to_str().unwrap_or("[description missing]"));
+
+    if output.use_preferred_mode().is_err() {
+      error!("Failed setting mode for new output");
+      unsafe {
+        wlr_output_destroy(output.raw_ptr());
+      }
+      return;
+    }
 
     unsafe {
       // Adds this to the output layout. The add_auto function arranges outputs

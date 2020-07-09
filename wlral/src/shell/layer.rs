@@ -316,11 +316,3 @@ impl LayerShellManager {
     }
   }
 }
-
-impl Drop for LayerShellManager {
-  fn drop(&mut self) {
-    unsafe {
-      wlr_layer_shell_v1_destroy(self.layer_shell);
-    }
-  }
-}

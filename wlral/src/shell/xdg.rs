@@ -374,11 +374,3 @@ impl XdgManager {
     }
   }
 }
-
-impl Drop for XdgManager {
-  fn drop(&mut self) {
-    unsafe {
-      wlr_xdg_shell_destroy(self.xdg_shell);
-    }
-  }
-}

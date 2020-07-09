@@ -4,13 +4,11 @@ extern crate meson;
 extern crate pkg_config;
 extern crate wayland_scanner;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::{env, fs, io};
 
 fn main() {
-  meson();
-
   let protocol_header_path =
     generate_protocol_headers().expect("Could not generate header files for wayland protocols");
   let target_dir = env::var("OUT_DIR").expect("$OUT_DIR not set!");
@@ -116,55 +114,6 @@ fn main() {
 
   generate_protocols();
 }
-
-#[cfg(not(feature = "static"))]
-fn meson() {}
-
-#[cfg(feature = "static")]
-fn meson() {
-  let build_path = PathBuf::from(env::var("OUT_DIR").expect("Could not get OUT_DIR env variable"));
-  let build_path_str = build_path
-    .to_str()
-    .expect("Could not turn build path into a string");
-  println!("cargo:rustc-link-search=native=wlroots");
-  println!("cargo:rustc-link-search=native={}/lib", build_path_str);
-  println!("cargo:rustc-link-search=native={}/lib64", build_path_str);
-  println!("cargo:rustc-link-search=native={}/build/", build_path_str);
-  if cfg!(feature = "static") {
-    println!("cargo:rustc-link-search=native={}/util/", build_path_str);
-    println!("cargo:rustc-link-search=native={}/types/", build_path_str);
-    println!(
-      "cargo:rustc-link-search=native={}/protocol/",
-      build_path_str
-    );
-    println!("cargo:rustc-link-search=native={}/xcursor/", build_path_str);
-    println!(
-      "cargo:rustc-link-search=native={}/xwayland/",
-      build_path_str
-    );
-    println!("cargo:rustc-link-search=native={}/backend/", build_path_str);
-    println!(
-      "cargo:rustc-link-search=native={}/backend/x11",
-      build_path_str
-    );
-    println!("cargo:rustc-link-search=native={}/render/", build_path_str);
-
-    println!("cargo:rustc-link-lib=static=wlr_util");
-    println!("cargo:rustc-link-lib=static=wlr_types");
-    println!("cargo:rustc-link-lib=static=wlr_xcursor");
-    println!("cargo:rustc-link-lib=static=wlr_xwayland");
-    println!("cargo:rustc-link-lib=static=wlr_backend");
-    println!("cargo:rustc-link-lib=static=wlr_backend_x11");
-    println!("cargo:rustc-link-lib=static=wlr_render");
-    println!("cargo:rustc-link-lib=static=wl_protos");
-  }
-
-  if Path::new("wlroots").exists() {
-    meson::build("wlroots", build_path_str);
-  } else {
-    panic!("The `wlroots` submodule does not exist");
-  }
-} 
 
 /// Gets the unstable and stable protocols in /usr/share-wayland-protocols and
 /// in wlroots/protocol.
