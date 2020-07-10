@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::pin::Pin;
 use std::ptr;
 use std::rc::{Rc, Weak};
-use std::time::Instant;
+use std::{borrow::Cow, ffi::CStr, time::Instant};
 use wlroots_sys::*;
 
 pub struct Output {
@@ -39,7 +39,7 @@ impl Output {
       if !mode.is_null() {
         wlr_output_set_mode(self.output, mode);
       }
-      
+
       wlr_output_enable(self.output, true);
       if !wlr_output_commit(self.output) {
         return Err(());
@@ -53,7 +53,7 @@ impl Output {
   pub fn set_custom_mode(&self, size: Size, refresh: i32) -> Result<(), ()> {
     unsafe {
       wlr_output_set_custom_mode(self.output, size.width(), size.height(), refresh);
-      
+
       wlr_output_enable(self.output, true);
       if !wlr_output_commit(self.output) {
         return Err(());
@@ -69,8 +69,8 @@ impl Output {
       wlr_output_layout_output_coords(self.output_layout, self.output, &mut x, &mut y);
     }
     Point {
-      x: x as i32,
-      y: y as i32,
+      x: -x as i32,
+      y: -y as i32,
     }
   }
 
@@ -98,6 +98,11 @@ impl Output {
     unsafe { TransformMatrix((*self.output).transform_matrix) }
   }
 
+  pub fn description(&self) -> Cow<str> {
+    let description: &CStr = unsafe { CStr::from_ptr((*self.output).description) };
+    description.to_string_lossy()
+  }
+
   pub(crate) fn render_window(&self, frame_time: &timespec, surface: Rc<Window>) {
     unsafe {
       let wlr_surface = &mut *surface.wlr_surface();
@@ -118,8 +123,7 @@ impl Output {
       // output-local coordinates, or (2000 - 1920).
       let buffer_extents = surface.buffer_extents();
 
-      let top_left = self.top_left()
-        + buffer_extents.top_left().as_displacement()
+      let top_left = buffer_extents.top_left() - self.top_left().as_displacement()
         + Displacement {
           dx: wlr_surface.sx,
           dy: wlr_surface.sy,

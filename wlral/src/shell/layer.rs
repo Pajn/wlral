@@ -5,10 +5,9 @@ use crate::surface::{Surface, SurfaceEventManager, SurfaceExt};
 use crate::window::*;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::{WindowManager, WindowManagerExt};
-use log::debug;
+use log::{debug, error, trace};
 use std::cell::RefCell;
 use std::pin::Pin;
-use std::ptr;
 use std::rc::Rc;
 use wayland_sys::server::wl_display;
 use wlroots_sys::*;
@@ -158,7 +157,7 @@ wayland_listener!(
     commit => commit_func: |this: &mut LayerSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
       if let Some(window) = handler.window.upgrade() {
-        update_anchor_edges(&window);
+        update_anchor_edges(handler.output_manager.clone(), &window);
         if let Surface::Layer(ref layer_surface_v1) = window.surface {
           handler.commit(WindowCommitEvent {
             serial: (*layer_surface_v1.0).configure_serial,
@@ -181,16 +180,42 @@ impl LayersEventHandler {
 
     // Assign an output if the client did not request one
     unsafe {
-      if (*layer_surface).output == ptr::null_mut() {
+      if (*layer_surface).output.is_null() {
         // TODO: Actually find the active output
         match self.output_manager.borrow().outputs().first() {
           Some(active_output) => {
+            trace!(
+              "LayersEventHandler::new_surface: Surface did not specify an output, picked: {0}",
+              active_output.description()
+            );
             (*layer_surface).output = active_output.output;
           }
           None => {
+            debug!("LayersEventHandler::new_surface: Closing surface as there are no outputs");
             wlr_layer_surface_v1_close(layer_surface);
             return;
           }
+        }
+      } else {
+        let output = self
+          .output_manager
+          .borrow()
+          .outputs()
+          .clone()
+          .into_iter()
+          .find(|output| output.raw_ptr() == (*layer_surface).output);
+
+        if let Some(output) = output {
+          trace!(
+            "LayersEventHandler::new_surface: Surface did specify output: {0}",
+            output.description()
+          );
+        } else {
+          debug!(
+            "LayersEventHandler::new_surface: Closing surface as it requested an invalid output"
+          );
+          wlr_layer_surface_v1_close(layer_surface);
+          return;
         }
       }
     }
@@ -216,7 +241,7 @@ impl LayersEventHandler {
 
     *window.event_manager.borrow_mut() = Some(SurfaceEventManager::Layer(event_manager));
 
-    update_anchor_edges(&window);
+    update_anchor_edges(self.output_manager.clone(), &window);
 
     self
       .wm_policy_manager
@@ -225,32 +250,54 @@ impl LayersEventHandler {
   }
 }
 
-fn update_anchor_edges(window: &Window) {
+fn update_anchor_edges(output_manager: Rc<RefCell<dyn OutputManager>>, window: &Window) {
   if let Surface::Layer(surface) = window.surface() {
     let attached_edges = surface.client_pending().attached_edges();
     let margins = unsafe { (*surface.client_pending().0).margin };
 
     let configured = unsafe { (*surface.0).configured };
-    let output_height = unsafe { (*(*surface.0).output).height };
-    let output_width = unsafe { (*(*surface.0).output).width };
+    let output = output_manager
+      .borrow()
+      .outputs()
+      .clone()
+      .into_iter()
+      .find(|output| output.raw_ptr() == unsafe { (*surface.0).output });
+    let output = match output {
+      Some(output) => output,
+      None => {
+        error!("LayerShell::update_anchor_edges: Could not find output for layer surface");
+        unsafe {
+          wlr_layer_surface_v1_close(surface.0);
+        }
+        return;
+      }
+    };
 
     let mut extents = window.extents();
     if attached_edges.contains(WindowEdge::TOP) && attached_edges.contains(WindowEdge::BOTTOM) {
-      extents.size.height = output_height - (margins.top + margins.bottom) as i32;
+      extents.size.height = output.size().height() - (margins.top + margins.bottom) as i32;
     }
     if attached_edges.contains(WindowEdge::LEFT) && attached_edges.contains(WindowEdge::RIGHT) {
-      extents.size.width = output_width - (margins.left + margins.right) as i32;
+      extents.size.width = output.size().width() - (margins.left + margins.right) as i32;
     }
-    // TODO: Handle multiple monitors
     if attached_edges.contains(WindowEdge::TOP) {
-      extents.top_left.y = margins.top as i32;
+      extents.top_left.y = output.top_left().y() + margins.top as i32;
     } else if attached_edges.contains(WindowEdge::BOTTOM) {
-      extents.top_left.y = output_height - extents.size.height - margins.bottom as i32;
+      extents.top_left.y = output.top_left().y() + output.size().height()
+        - extents.size.height
+        - margins.bottom as i32;
+    } else {
+      extents.top_left.y =
+        output.top_left().y() + output.size().height() / 2 - extents.size.height / 2;
     }
     if attached_edges.contains(WindowEdge::LEFT) {
-      extents.top_left.x = margins.left as i32;
+      extents.top_left.x = output.top_left().x() + margins.left as i32;
     } else if attached_edges.contains(WindowEdge::RIGHT) {
-      extents.top_left.x = output_width - extents.size.width - margins.right as i32;
+      extents.top_left.x =
+        output.top_left().x() + output.size().width() - extents.size.width - margins.right as i32;
+    } else {
+      extents.top_left.x =
+        output.top_left().x() + output.size().width() / 2 - extents.size.width / 2;
     }
     if !configured || extents.size != window.extents().size {
       unsafe {
