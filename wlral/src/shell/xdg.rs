@@ -78,7 +78,10 @@ impl SurfaceExt for XdgSurface {
     match self.get_type() {
       Popup(popup) => unsafe {
         if !wlr_surface_is_xdg_surface((*popup).parent) {
-          return Displacement::ZERO;
+          return Displacement {
+            dx: (*popup).geometry.x,
+            dy: (*popup).geometry.y,
+          };
         }
 
         let parent = wlr_xdg_surface_from_wlr_surface((*popup).parent);
