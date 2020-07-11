@@ -4,7 +4,7 @@ use crate::output_manager::OutputManager;
 use crate::surface::{Surface, SurfaceEventManager, SurfaceExt};
 use crate::window::*;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
-use crate::window_manager::{WindowManager, WindowManagerExt};
+use crate::window_manager::{WindowLayer, WindowManager, WindowManagerExt};
 use log::{debug, info};
 use std::cell::RefCell;
 use std::env;
@@ -214,9 +214,10 @@ pub struct XwaylandEventHandler {
 impl XwaylandEventHandler {
   fn new_surface(&mut self, xwayland_surface: *mut wlr_xwayland_surface) {
     debug!("XwaylandEventHandler::new_surface");
-    let window = self
-      .window_manager
-      .new_window(Surface::Xwayland(XwaylandSurface(xwayland_surface)));
+    let window = self.window_manager.new_window(
+      WindowLayer::Normal,
+      Surface::Xwayland(XwaylandSurface(xwayland_surface)),
+    );
 
     let mut event_manager = XwaylandSurfaceEventManager::new(WindowEventHandler {
       wm_policy_manager: self.wm_policy_manager.clone(),

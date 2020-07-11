@@ -4,7 +4,7 @@ use crate::output_manager::OutputManager;
 use crate::surface::{Surface, SurfaceEventManager, SurfaceExt};
 use crate::window::*;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
-use crate::window_manager::{WindowManager, WindowManagerExt};
+use crate::window_manager::{WindowLayer, WindowManager, WindowManagerExt};
 use log::debug;
 use std::cell::RefCell;
 use std::ffi::CStr;
@@ -282,9 +282,22 @@ impl XdgEventHandler {
   fn new_surface(&mut self, xdg_surface: *mut wlr_xdg_surface) {
     debug!("XdgEventHandler::new_surface");
 
+    let layer = match XdgSurface(xdg_surface).get_type() {
+      Popup(popup) => {
+        let wlr_surface = unsafe { (*popup).parent };
+        self
+          .window_manager
+          .borrow()
+          .windows()
+          .find(|window| window.wlr_surface() == wlr_surface)
+          .map_or(WindowLayer::Normal, |window| window.layer)
+      }
+      _ => WindowLayer::Normal,
+    };
+
     let window = self
       .window_manager
-      .new_window(Surface::Xdg(XdgSurface(xdg_surface)));
+      .new_window(layer, Surface::Xdg(XdgSurface(xdg_surface)));
 
     let mut event_manager = XdgSurfaceEventManager::new(WindowEventHandler {
       wm_policy_manager: self.wm_policy_manager.clone(),

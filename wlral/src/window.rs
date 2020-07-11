@@ -3,7 +3,7 @@ use crate::input::cursor::CursorManager;
 use crate::output_manager::OutputManager;
 use crate::surface::{Surface, SurfaceEventManager, SurfaceExt};
 use crate::window_management_policy::*;
-use crate::window_manager::WindowManager;
+use crate::window_manager::{WindowLayer, WindowManager};
 use bitflags::bitflags;
 use std::cell::RefCell;
 use std::cmp::PartialEq;
@@ -31,6 +31,7 @@ pub struct Window {
   pub(crate) window_manager: Rc<RefCell<WindowManager>>,
 
   pub(crate) surface: Surface,
+  pub(crate) layer: WindowLayer,
   pub(crate) mapped: RefCell<bool>,
   pub(crate) top_left: RefCell<Point>,
 
@@ -57,9 +58,7 @@ impl Window {
           .window_manager
           .borrow()
           .windows()
-          .iter()
           .find(|w| w.wlr_surface() == parent_wlr_surface)
-          .cloned()
       })
       .map(|w| w.buffer_extents().top_left().as_displacement())
       .unwrap_or_default();

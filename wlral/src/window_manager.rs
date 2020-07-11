@@ -7,14 +7,62 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use wlroots_sys::*;
 
+#[derive(Debug, Copy, Clone)]
+pub enum WindowLayer {
+  Background,
+  Bottom,
+  Normal,
+  Top,
+  Overlay,
+}
+
+#[derive(Default)]
+struct WindowLayers {
+  background: Vec<Rc<Window>>,
+  bottom: Vec<Rc<Window>>,
+  normal: Vec<Rc<Window>>,
+  top: Vec<Rc<Window>>,
+  overlay: Vec<Rc<Window>>,
+}
+
+impl WindowLayers {
+  fn all_windows(&self) -> impl '_ + DoubleEndedIterator<Item = Rc<Window>> {
+    self
+      .background
+      .iter()
+      .chain(self.bottom.iter())
+      .chain(self.normal.iter())
+      .chain(self.top.iter())
+      .chain(self.overlay.iter())
+      .cloned()
+  }
+
+  fn update<F>(&mut self, layer: WindowLayer, mut f: F)
+  where
+    F: FnMut(&mut Vec<Rc<Window>>) -> (),
+  {
+    match layer {
+      WindowLayer::Background => f(&mut self.background),
+      WindowLayer::Bottom => f(&mut self.bottom),
+      WindowLayer::Normal => f(&mut self.normal),
+      WindowLayer::Top => f(&mut self.top),
+      WindowLayer::Overlay => f(&mut self.overlay),
+    }
+  }
+}
+
 pub struct WindowManager {
   seat: *mut wlr_seat,
-  windows: Vec<Rc<Window>>,
+  layers: WindowLayers,
 }
 
 impl std::fmt::Debug for WindowManager {
   fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-    write!(fmt, "WindowManager {{windows: {0}}}", self.windows.len())
+    write!(
+      fmt,
+      "WindowManager {{windows: {0}}}",
+      self.layers.normal.len()
+    )
   }
 }
 
@@ -22,54 +70,52 @@ impl WindowManager {
   pub fn init(seat: *mut wlr_seat) -> WindowManager {
     WindowManager {
       seat,
-      windows: vec![],
+      layers: WindowLayers::default(),
     }
   }
 
-  pub fn windows_to_render<'a>(&'a self) -> impl 'a + Iterator<Item = Rc<Window>> {
+  pub fn windows_to_render(&self) -> impl '_ + Iterator<Item = Rc<Window>> {
     self
-      .windows
-      .iter()
+      .layers
+      .all_windows()
       .filter(|window| *window.mapped.borrow())
-      .cloned()
   }
 
   pub fn window_at(&self, point: &Point) -> Option<Rc<Window>> {
     self
-      .windows
-      .iter()
+      .layers
+      .all_windows()
       // Reverse as windows is from back to front
       .rev()
       .find(|window| window.extents().contains(point))
-      .cloned()
   }
 
   pub(crate) fn window_buffer_at(&self, point: &Point) -> Option<Rc<Window>> {
     self
-      .windows
-      .iter()
+      .layers
+      .all_windows()
       // Reverse as windows is from back to front
       .rev()
       .find(|window| window.buffer_extents().contains(point))
-      .cloned()
   }
 
   pub(crate) fn destroy_window(&mut self, destroyed_window: Rc<Window>) {
-    self.windows.retain(|window| *window != destroyed_window);
+    self.layers.update(destroyed_window.layer, |windows| {
+      windows.retain(|window| *window != destroyed_window)
+    });
   }
 
-  pub fn windows(&self) -> &Vec<Rc<Window>> {
-    &self.windows
+  pub fn windows(&self) -> impl '_ + DoubleEndedIterator<Item = Rc<Window>> {
+    self.layers.all_windows()
   }
 
   /// Returns the window that holds keyboard focus
   pub fn focused_window(&self) -> Option<Rc<Window>> {
     let focused_surface = unsafe { (*self.seat).keyboard_state.focused_surface };
     self
-      .windows
-      .iter()
+      .layers
+      .all_windows()
       .find(|w| w.wlr_surface() == focused_surface)
-      .cloned()
   }
 
   /// If the window have keyboard focus
@@ -102,8 +148,10 @@ impl WindowManager {
       }
 
       // Move the view to the front
-      self.windows.retain(|s| *s != window);
-      self.windows.push(window.clone());
+      self.layers.update(window.layer, |windows| {
+        windows.retain(|s| *s != window);
+        windows.push(window.clone());
+      });
 
       // Activate the new window
       window.surface().set_activated(true);
@@ -124,13 +172,14 @@ impl WindowManager {
 }
 
 pub(crate) trait WindowManagerExt {
-  fn new_window(&self, surface: Surface) -> Rc<Window>;
+  fn new_window(&self, layer: WindowLayer, surface: Surface) -> Rc<Window>;
 }
 
 impl WindowManagerExt for Rc<RefCell<WindowManager>> {
-  fn new_window(&self, surface: Surface) -> Rc<Window> {
+  fn new_window(&self, layer: WindowLayer, surface: Surface) -> Rc<Window> {
     let window = Rc::new(Window {
       window_manager: self.clone(),
+      layer,
       surface,
       mapped: RefCell::new(false),
       top_left: RefCell::new(Point::ZERO),
@@ -141,9 +190,13 @@ impl WindowManagerExt for Rc<RefCell<WindowManager>> {
     // the window management policy can choose if it want to focus the
     // window
     if window.can_receive_focus() {
-      self.borrow_mut().windows.insert(0, window.clone());
+      self.borrow_mut().layers.update(layer, |windows| {
+        windows.insert(0, window.clone());
+      })
     } else {
-      self.borrow_mut().windows.push(window.clone());
+      self.borrow_mut().layers.update(layer, |windows| {
+        windows.push(window.clone());
+      })
     }
     window
   }
@@ -164,7 +217,7 @@ mod tests {
     let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
     let cursor_manager = Rc::new(RefCell::new(MockCursorManager::default()));
     let window_manager = Rc::new(RefCell::new(WindowManager::init(ptr::null_mut())));
-    let window = window_manager.new_window(Surface::Null);
+    let window = window_manager.new_window(WindowLayer::Normal, Surface::Null);
 
     let mut event_handler = WindowEventHandler {
       wm_policy_manager,
@@ -181,7 +234,7 @@ mod tests {
 
     event_handler.destroy();
 
-    assert!(window_manager.borrow().windows.len() == 0);
+    assert!(window_manager.borrow().windows().count() == 0);
     assert!(weak_window.upgrade().is_none());
   }
 }

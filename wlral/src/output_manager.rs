@@ -100,7 +100,10 @@ impl OutputManagerImpl {
   fn new_output(&mut self, output: Output) {
     let description: &CStr = unsafe { CStr::from_ptr((*output.raw_ptr()).description) };
 
-    debug!("OutputManager::new_output: {0}", description.to_str().unwrap_or("[description missing]"));
+    debug!(
+      "OutputManager::new_output: {0}",
+      description.to_str().unwrap_or("[description missing]")
+    );
 
     if output.use_preferred_mode().is_err() {
       error!("Failed setting mode for new output");

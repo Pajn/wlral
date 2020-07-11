@@ -4,7 +4,7 @@ use crate::output_manager::OutputManager;
 use crate::surface::{Surface, SurfaceEventManager, SurfaceExt};
 use crate::window::*;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
-use crate::window_manager::{WindowManager, WindowManagerExt};
+use crate::window_manager::{WindowLayer, WindowManager, WindowManagerExt};
 use log::{debug, error, trace};
 use std::cell::RefCell;
 use std::pin::Pin;
@@ -21,6 +21,21 @@ impl LayerSurfaceState {
   }
   pub fn set_attached_edges(&self, attached_edges: WindowEdge) {
     unsafe { (*self.0).anchor = attached_edges.bits() }
+  }
+
+  pub fn layer(&self) -> Result<WindowLayer, ()> {
+    unsafe {
+      #[allow(non_upper_case_globals)]
+      match (*self.0).layer {
+        zwlr_layer_shell_v1_layer_ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND => {
+          Ok(WindowLayer::Background)
+        }
+        zwlr_layer_shell_v1_layer_ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM => Ok(WindowLayer::Bottom),
+        zwlr_layer_shell_v1_layer_ZWLR_LAYER_SHELL_V1_LAYER_TOP => Ok(WindowLayer::Top),
+        zwlr_layer_shell_v1_layer_ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY => Ok(WindowLayer::Overlay),
+        _ => Err(()),
+      }
+    }
   }
 }
 
@@ -221,8 +236,20 @@ impl LayersEventHandler {
     }
 
     let surface = LayerSurface(layer_surface);
+    let layer = match surface.client_pending().layer() {
+      Ok(layer) => layer,
+      Result::Err(_) => {
+        debug!("LayersEventHandler::new_surface: Closing surface as it requested an invalid layer");
+        unsafe {
+          wlr_layer_surface_v1_close(layer_surface);
+        }
+        return;
+      }
+    };
 
-    let window = self.window_manager.new_window(Surface::Layer(surface));
+    let window = self
+      .window_manager
+      .new_window(layer, Surface::Layer(surface));
 
     let mut event_manager = LayerSurfaceEventManager::new(WindowEventHandler {
       wm_policy_manager: self.wm_policy_manager.clone(),
