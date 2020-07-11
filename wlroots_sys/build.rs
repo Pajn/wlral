@@ -39,7 +39,7 @@ fn main() {
     .blacklist_type(r"^xkb_.*$")
     .blacklist_type(r"^XKB_.*$")
     // Work around duplicate wayland types from wlroots and wayland_sys
-    .blacklist_type(r"^wl_(display|list|listener|signal)$");
+    .blacklist_type(r"^wl_(client|display|list|listener|resource|signal)$");
   if cfg!(feature = "unstable") {
     builder = builder
       .clang_arg("-DWLR_USE_UNSTABLE")

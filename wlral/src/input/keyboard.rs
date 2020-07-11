@@ -1,6 +1,7 @@
+use crate::input::device::{Device, DeviceType};
 use crate::input::event_filter::{EventFilter, EventFilterManager};
 use crate::input::events::{InputEvent, KeyboardEvent};
-use crate::input::seat::{Device, DeviceType, InputDeviceManager};
+use crate::input::seat::SeatManager;
 use log::debug;
 use std::cell::RefCell;
 use std::ops::Deref;
@@ -12,8 +13,8 @@ use xkbcommon::xkb;
 use xkbcommon::xkb::ffi::xkb_state_ref;
 
 pub struct Keyboard {
+  seat_manager: Rc<SeatManager>,
   event_filter_manager: Rc<RefCell<EventFilterManager>>,
-  seat: *mut wlr_seat,
   device: Rc<Device>,
   keyboard: *mut wlr_keyboard,
   xkb_state: xkb::State,
@@ -23,10 +24,12 @@ pub struct Keyboard {
 
 impl Keyboard {
   fn init(
+    seat_manager: Rc<SeatManager>,
     event_filter_manager: Rc<RefCell<EventFilterManager>>,
-    seat: *mut wlr_seat,
     device: Rc<Device>,
   ) -> Rc<Keyboard> {
+    debug!("Keyboard::init");
+
     let keyboard_ptr = match device.device_type() {
       DeviceType::Keyboard(keyboard_ptr) => keyboard_ptr,
       _ => panic!("Keyboard::init expects a keyboard device"),
@@ -52,15 +55,13 @@ impl Keyboard {
     }
 
     let keyboard = Rc::new(Keyboard {
+      seat_manager,
       event_filter_manager,
-      seat,
       device,
       keyboard: keyboard_ptr,
       xkb_state: unsafe { xkb::State::from_raw_ptr(xkb_state_ref((*keyboard_ptr).xkb_state)) },
       event_manager: RefCell::new(None),
     });
-
-    debug!("Keyboard::init");
 
     let mut event_manager = KeyboardEventManager::new(Rc::downgrade(&keyboard));
     unsafe {
@@ -93,9 +94,12 @@ impl KeyboardEventHandler for Keyboard {
       // Wayland protocol - not wlroots. We assign all connected keyboards to the
       // same seat. You can swap out the underlying wlr_keyboard like this and
       // wlr_seat handles this transparently.
-      wlr_seat_set_keyboard(self.seat, self.device.raw_ptr());
+      wlr_seat_set_keyboard(self.seat_manager.raw_seat(), self.device.raw_ptr());
       // Send modifiers to the client.
-      wlr_seat_keyboard_notify_modifiers(self.seat, &mut (*self.keyboard).modifiers);
+      wlr_seat_keyboard_notify_modifiers(
+        self.seat_manager.raw_seat(),
+        &mut (*self.keyboard).modifiers,
+      );
     }
   }
 
@@ -110,9 +114,9 @@ impl KeyboardEventHandler for Keyboard {
     if !handled {
       unsafe {
         // Otherwise, we pass it along to the client.
-        wlr_seat_set_keyboard(self.seat, self.device.raw_ptr());
+        wlr_seat_set_keyboard(self.seat_manager.raw_seat(), self.device.raw_ptr());
         wlr_seat_keyboard_notify_key(
-          self.seat,
+          self.seat_manager.raw_seat(),
           event.time_msec(),
           event.libinput_keycode(),
           event.state(),
@@ -140,74 +144,73 @@ wayland_listener!(
 );
 
 pub struct KeyboardManager {
+  seat_manager: Rc<SeatManager>,
   event_filter_manager: Rc<RefCell<EventFilterManager>>,
-  seat: *mut wlr_seat,
-  keyboards: Vec<Rc<Keyboard>>,
+  keyboards: RefCell<Vec<Rc<Keyboard>>>,
 }
 
 impl KeyboardManager {
   pub(crate) fn init(
+    seat_manager: Rc<SeatManager>,
     event_filter_manager: Rc<RefCell<EventFilterManager>>,
-    seat: *mut wlr_seat,
-  ) -> KeyboardManager {
-    KeyboardManager {
+  ) -> Rc<KeyboardManager> {
+    let keyboard_manager = Rc::new(KeyboardManager {
+      seat_manager: seat_manager.clone(),
       event_filter_manager,
-      seat,
-      keyboards: vec![],
-    }
+      keyboards: RefCell::new(vec![]),
+    });
+
+    seat_manager
+      .on_new_device
+      .subscribe(listener!(keyboard_manager => move |device| {
+        if let DeviceType::Keyboard(_) = device.device_type() {
+          device.on_destroy.then(listener!(device, keyboard_manager => move || {
+            keyboard_manager
+              .keyboards
+              .borrow_mut()
+              .retain(|keyboard| keyboard.device.deref() != device.deref());
+
+              keyboard_manager
+              .seat_manager
+              .set_has_any_keyboard(keyboard_manager.has_keyboard());
+          }));
+
+          unsafe {
+            wlr_seat_set_keyboard(keyboard_manager.seat_manager.raw_seat(), device.raw_ptr());
+          }
+          let keyboard = Keyboard::init(
+            keyboard_manager.seat_manager.clone(),
+            keyboard_manager.event_filter_manager.clone(),
+            device.clone(),
+          );
+          keyboard_manager.keyboards.borrow_mut().push(keyboard);
+          keyboard_manager.seat_manager.set_has_any_keyboard(true);
+        }
+      }));
+
+    keyboard_manager
   }
 
-  pub fn has_keyboard_device(&self) -> bool {
-    !self.keyboards.is_empty()
-  }
-}
-
-impl InputDeviceManager for KeyboardManager {
-  fn has_any_input_device(&self) -> bool {
-    self.has_keyboard_device()
-  }
-
-  fn add_input_device(&mut self, device: Rc<Device>) {
-    let keyboard = Keyboard::init(self.event_filter_manager.clone(), self.seat, device);
-    self.keyboards.push(keyboard);
-  }
-
-  fn destroy_input_device(&mut self, destroyed_keyboard: &Device) {
-    self
-      .keyboards
-      .retain(|keyboard| keyboard.device.deref() != destroyed_keyboard);
+  pub fn has_keyboard(&self) -> bool {
+    !self.keyboards.borrow().is_empty()
   }
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::input::seat::SeatEventHandler;
   use crate::test_util::*;
   use std::ptr;
   use std::rc::Rc;
 
-  struct CursorManager;
-
-  impl InputDeviceManager for CursorManager {
-    fn has_any_input_device(&self) -> bool {
-      false
-    }
-    fn add_input_device(&mut self, _: Rc<Device>) {
-      unimplemented!();
-    }
-    fn destroy_input_device(&mut self, _: &Device) {
-      unimplemented!();
-    }
-  }
-
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
+    let seat_manager = SeatManager::mock(ptr::null_mut(), ptr::null_mut());
     let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
-    let keyboard_manager = Rc::new(RefCell::new(KeyboardManager::init(
+    let keyboard_manager = Rc::new(KeyboardManager::init(
+      seat_manager.clone(),
       event_filter_manager,
-      ptr::null_mut(),
-    )));
+    ));
 
     let mut raw_keyboard = wlr_keyboard {
       impl_: ptr::null(),
@@ -261,15 +264,10 @@ mod tests {
     let repeat_info_signal = WlSignal::from_ptr(&mut raw_keyboard.events.repeat_info);
     let destroy_signal = WlSignal::from_ptr(&mut device.events.destroy);
 
-    let seat_event_handler = Rc::new(SeatEventHandler {
-      seat: ptr::null_mut(),
-      keyboard_manager: keyboard_manager.clone(),
-      cursor_manager: Rc::new(RefCell::new(CursorManager)),
-    });
-    let device = Device::init(seat_event_handler, &mut device);
+    let device = Device::init(&mut device);
     let weak_device = Rc::downgrade(&device);
-    keyboard_manager.borrow_mut().add_input_device(device);
-    let keyboard = keyboard_manager.borrow().keyboards.first().unwrap().clone();
+    seat_manager.on_new_device.fire(device);
+    let keyboard = keyboard_manager.keyboards.borrow().first().unwrap().clone();
 
     let weak_keyboard = Rc::downgrade(&keyboard);
     drop(keyboard);
@@ -279,8 +277,7 @@ mod tests {
     assert!(key_signal.listener_count() == 1);
     assert!(modifiers_signal.listener_count() == 1);
     assert!(destroy_signal.listener_count() == 1);
-    assert!(keyboard_manager.borrow().has_keyboard_device());
-    assert!(keyboard_manager.borrow().has_any_input_device());
+    assert!(keyboard_manager.has_keyboard());
 
     destroy_signal.emit();
 
@@ -289,8 +286,7 @@ mod tests {
     assert!(keymap_signal.listener_count() == 0);
     assert!(repeat_info_signal.listener_count() == 0);
     assert!(destroy_signal.listener_count() == 0);
-    assert!(!keyboard_manager.borrow().has_keyboard_device());
-    assert!(!keyboard_manager.borrow().has_any_input_device());
+    assert!(!keyboard_manager.has_keyboard());
     assert!(weak_keyboard.upgrade().is_none());
     assert!(weak_device.upgrade().is_none());
   }
@@ -298,6 +294,8 @@ mod tests {
 
 #[cfg(test)]
 use xkbcommon::xkb::ffi::{xkb_keymap, xkb_state};
+#[cfg(test)]
+unsafe fn wlr_seat_set_keyboard(_: *mut wlr_seat, _: *mut wlr_input_device) {}
 #[cfg(test)]
 unsafe fn wlr_keyboard_set_keymap(_: *mut wlr_keyboard, _: *mut xkb_keymap) {}
 #[cfg(test)]

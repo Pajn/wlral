@@ -1,7 +1,6 @@
 use crate::geometry::{FDisplacement, FPoint};
 use crate::input::cursor::CursorManager;
 use crate::input::keyboard::Keyboard;
-use std::cell::RefCell;
 use std::rc::Rc;
 use wlroots_sys::*;
 use xkbcommon::xkb;
@@ -41,13 +40,13 @@ pub trait CursorEvent {
 /// Event that triggers when the pointer device scrolls (e.g using a wheel
 /// or in the case of a touchpad when you use two fingers to scroll)
 pub struct AxisEvent {
-  cursor_manager: Rc<RefCell<dyn CursorManager>>,
+  cursor_manager: Rc<CursorManager>,
   event: *const wlr_event_pointer_axis,
 }
 
 impl AxisEvent {
   pub(crate) unsafe fn from_ptr(
-    cursor_manager: Rc<RefCell<dyn CursorManager>>,
+    cursor_manager: Rc<CursorManager>,
     event: *const wlr_event_pointer_axis,
   ) -> Self {
     AxisEvent {
@@ -93,7 +92,7 @@ impl InputEvent for AxisEvent {
 
 impl CursorEvent for AxisEvent {
   fn position(&self) -> FPoint {
-    self.cursor_manager.borrow().position()
+    self.cursor_manager.position()
   }
   fn delta(&self) -> FDisplacement {
     FDisplacement::ZERO
@@ -129,13 +128,13 @@ impl ButtonState {
 /// Event that triggers when a button is pressed (e.g left click, right click,
 /// a gaming mouse button, etc.)
 pub struct ButtonEvent {
-  cursor_manager: Rc<RefCell<dyn CursorManager>>,
+  cursor_manager: Rc<CursorManager>,
   event: *const wlr_event_pointer_button,
 }
 
 impl ButtonEvent {
   pub(crate) unsafe fn from_ptr(
-    cursor_manager: Rc<RefCell<dyn CursorManager>>,
+    cursor_manager: Rc<CursorManager>,
     event: *const wlr_event_pointer_button,
   ) -> Self {
     ButtonEvent {
@@ -177,7 +176,7 @@ impl InputEvent for ButtonEvent {
 
 impl CursorEvent for ButtonEvent {
   fn position(&self) -> FPoint {
-    self.cursor_manager.borrow().position()
+    self.cursor_manager.position()
   }
   fn delta(&self) -> FDisplacement {
     FDisplacement::ZERO
@@ -231,13 +230,13 @@ impl CursorEvent for MotionEvent {
 }
 
 pub struct RelativeMotionEvent {
-  cursor_manager: Rc<RefCell<dyn CursorManager>>,
+  cursor_manager: Rc<CursorManager>,
   event: *const wlr_event_pointer_motion,
 }
 
 impl RelativeMotionEvent {
   pub(crate) unsafe fn from_ptr(
-    cursor_manager: Rc<RefCell<dyn CursorManager>>,
+    cursor_manager: Rc<CursorManager>,
     event: *const wlr_event_pointer_motion,
   ) -> Self {
     RelativeMotionEvent {
@@ -264,7 +263,7 @@ impl InputEvent for RelativeMotionEvent {
 
 impl CursorEvent for RelativeMotionEvent {
   fn position(&self) -> FPoint {
-    self.cursor_manager.borrow().position() + self.delta()
+    self.cursor_manager.position() + self.delta()
   }
 
   fn delta(&self) -> FDisplacement {
@@ -287,13 +286,13 @@ impl CursorEvent for RelativeMotionEvent {
 }
 
 pub struct AbsoluteMotionEvent {
-  cursor_manager: Rc<RefCell<dyn CursorManager>>,
+  cursor_manager: Rc<CursorManager>,
   event: *const wlr_event_pointer_motion_absolute,
 }
 
 impl AbsoluteMotionEvent {
   pub(crate) unsafe fn from_ptr(
-    cursor_manager: Rc<RefCell<dyn CursorManager>>,
+    cursor_manager: Rc<CursorManager>,
     event: *const wlr_event_pointer_motion_absolute,
   ) -> Self {
     AbsoluteMotionEvent {
@@ -325,7 +324,7 @@ impl CursorEvent for AbsoluteMotionEvent {
       let mut y = 0.0;
 
       wlr_cursor_absolute_to_layout_coords(
-        self.cursor_manager.borrow().raw_cursor(),
+        self.cursor_manager.raw_cursor(),
         self.raw_device(),
         (*self.event).x,
         (*self.event).y,
@@ -338,7 +337,7 @@ impl CursorEvent for AbsoluteMotionEvent {
   }
 
   fn delta(&self) -> FDisplacement {
-    self.position() - self.cursor_manager.borrow().position()
+    self.position() - self.cursor_manager.position()
   }
 
   fn delta_unaccel(&self) -> FDisplacement {

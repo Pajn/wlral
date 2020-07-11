@@ -5,6 +5,7 @@ use crate::surface::{Surface, SurfaceEventManager, SurfaceExt};
 use crate::window_management_policy::*;
 use crate::window_manager::{WindowLayer, WindowManager};
 use bitflags::bitflags;
+use log::debug;
 use std::cell::RefCell;
 use std::cmp::PartialEq;
 use std::collections::BTreeMap;
@@ -43,6 +44,20 @@ pub struct Window {
 impl Window {
   pub(crate) fn surface(&self) -> &Surface {
     &self.surface
+  }
+
+  pub fn wl_resource(&self) -> *mut wl_resource {
+    self.surface.wl_resource()
+  }
+
+  pub fn wl_client(&self) -> *mut wl_client {
+    unsafe {
+      ffi_dispatch!(
+        WAYLAND_SERVER_HANDLE,
+        wl_resource_get_client,
+        self.wl_resource()
+      )
+    }
   }
 
   pub fn wlr_surface(&self) -> *mut wlr_surface {
@@ -187,7 +202,7 @@ pub(crate) struct WindowEventHandler {
   pub(crate) wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
   pub(crate) output_manager: Rc<dyn OutputManager>,
   pub(crate) window_manager: Rc<RefCell<WindowManager>>,
-  pub(crate) cursor_manager: Rc<RefCell<dyn CursorManager>>,
+  pub(crate) cursor_manager: Rc<CursorManager>,
   pub(crate) window: Weak<Window>,
 }
 
@@ -209,6 +224,7 @@ impl WindowEventHandler {
   }
 
   pub(crate) fn destroy(&mut self) {
+    debug!("WindowEventHandler::destroy");
     if let Some(window) = self.window.upgrade() {
       self
         .wm_policy_manager
@@ -223,6 +239,10 @@ impl WindowEventHandler {
 
   pub(crate) fn commit(&mut self, event: WindowCommitEvent) {
     if let Some(window) = self.window.upgrade() {
+      if !window.can_receive_focus() && self.window_manager.borrow().window_has_focus(&window) {
+        self.window_manager.borrow().blur();
+      }
+
       match window.pending_updates.borrow_mut().remove(&event.serial) {
         Some(update) => {
           window.move_to(update.top_left);
@@ -240,7 +260,7 @@ impl WindowEventHandler {
     if let Some(window) = self.window.upgrade() {
       let request = MoveRequest {
         window: window.clone(),
-        drag_point: self.cursor_manager.borrow().position()
+        drag_point: self.cursor_manager.position()
           - FPoint::from(window.extents().top_left()).as_displacement(),
       };
 
@@ -255,7 +275,7 @@ impl WindowEventHandler {
     if let Some(window) = self.window.upgrade() {
       let request = ResizeRequest {
         window: window.clone(),
-        cursor_position: self.cursor_manager.borrow().position(),
+        cursor_position: self.cursor_manager.position(),
         edges: WindowEdge::from_bits_truncate(event.edges),
       };
 

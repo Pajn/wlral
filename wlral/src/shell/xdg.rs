@@ -11,7 +11,6 @@ use std::ffi::CStr;
 use std::pin::Pin;
 use std::ptr::NonNull;
 use std::rc::Rc;
-use wayland_sys::server::wl_display;
 use wlroots_sys::*;
 
 enum XdgSurfaceType {
@@ -52,6 +51,10 @@ impl XdgSurface {
 }
 
 impl SurfaceExt for XdgSurface {
+  fn wl_resource(&self) -> *mut wl_resource {
+    unsafe { (*self.0).resource }
+  }
+
   fn wlr_surface(&self) -> *mut wlr_surface {
     unsafe { (*self.0).surface }
   }
@@ -279,7 +282,7 @@ pub struct XdgEventHandler {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
   output_manager: Rc<dyn OutputManager>,
   window_manager: Rc<RefCell<WindowManager>>,
-  cursor_manager: Rc<RefCell<dyn CursorManager>>,
+  cursor_manager: Rc<CursorManager>,
 }
 impl XdgEventHandler {
   fn new_surface(&mut self, xdg_surface: *mut wlr_xdg_surface) {
@@ -363,7 +366,7 @@ impl XdgManager {
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
     output_manager: Rc<dyn OutputManager>,
     window_manager: Rc<RefCell<WindowManager>>,
-    cursor_manager: Rc<RefCell<dyn CursorManager>>,
+    cursor_manager: Rc<CursorManager>,
     display: *mut wl_display,
   ) -> XdgManager {
     debug!("XdgManager::init");

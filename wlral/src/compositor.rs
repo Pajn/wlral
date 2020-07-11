@@ -31,9 +31,9 @@ pub struct Compositor {
   xdg_manager: XdgManager,
   xwayland_manager: XwaylandManager,
 
-  seat_manager: SeatManager,
-  cursor_manager: Rc<RefCell<dyn CursorManager>>,
-  keyboard_manager: Rc<RefCell<KeyboardManager>>,
+  seat_manager: Rc<SeatManager>,
+  cursor_manager: Rc<CursorManager>,
+  keyboard_manager: Rc<KeyboardManager>,
 
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
   event_filter_manager: Rc<RefCell<EventFilterManager>>,
@@ -76,7 +76,8 @@ impl Compositor {
       // let us know when new input devices are available on the backend.
       let seat = wlr_seat_create(display, CString::new("seat0").unwrap().as_ptr());
 
-      let window_manager = Rc::new(RefCell::new(WindowManager::init(seat)));
+      let seat_manager = SeatManager::init(display, backend, seat);
+      let window_manager = Rc::new(RefCell::new(WindowManager::init(seat_manager.clone())));
 
       // Creates an output layout, which a wlroots utility for working with an
       // arrangement of screens in a physical layout.
@@ -92,23 +93,15 @@ impl Compositor {
       );
 
       let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
-      let cursor_manager = CursorManagerImpl::init(
+      let cursor_manager = CursorManager::init(
         output_manager.clone(),
         window_manager.clone(),
+        seat_manager.clone(),
         event_filter_manager.clone(),
         output_layout,
-        seat,
       );
-      let keyboard_manager = Rc::new(RefCell::new(KeyboardManager::init(
-        event_filter_manager.clone(),
-        seat,
-      )));
-      let seat_manager = SeatManager::init(
-        backend,
-        seat,
-        cursor_manager.clone(),
-        keyboard_manager.clone(),
-      );
+      let keyboard_manager =
+        KeyboardManager::init(seat_manager.clone(), event_filter_manager.clone());
 
       let layer_shell_manager = LayerShellManager::init(
         wm_policy_manager.clone(),
@@ -183,7 +176,7 @@ impl Compositor {
     self.window_manager.clone()
   }
 
-  pub fn cursor_manager(&self) -> Rc<RefCell<dyn CursorManager>> {
+  pub fn cursor_manager(&self) -> Rc<CursorManager> {
     self.cursor_manager.clone()
   }
 

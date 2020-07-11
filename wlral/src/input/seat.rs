@@ -1,9 +1,9 @@
+use super::device::Device;
+use crate::{event::Event, window::Window};
 use log::debug;
-use std::borrow::Cow;
 use std::cell::RefCell;
-use std::ffi::CStr;
 use std::pin::Pin;
-use std::rc::{Rc, Weak};
+use std::{ptr, rc::Rc};
 use wlroots_sys::*;
 
 mod wl_seat_capability {
@@ -14,117 +14,104 @@ mod wl_seat_capability {
 }
 use wl_seat_capability::*;
 
-#[derive(Debug, PartialEq)]
-pub enum DeviceType {
-  Keyboard(*mut wlr_keyboard),
-  Pointer(*mut wlr_pointer),
-  Unknown,
-}
-
-pub struct Device {
-  device: *mut wlr_input_device,
-  seat_event_manager: Rc<SeatEventHandler>,
-
-  event_manager: RefCell<Option<Pin<Box<DeviceEventManager>>>>,
-}
-
-impl Device {
-  pub(crate) fn init(
-    seat_event_manager: Rc<SeatEventHandler>,
-    device: *mut wlr_input_device,
-  ) -> Rc<Device> {
-    let device = Rc::new(Device {
-      device,
-      seat_event_manager,
-      event_manager: RefCell::new(None),
-    });
-
-    let mut event_manager = DeviceEventManager::new(Rc::downgrade(&device));
-    unsafe {
-      event_manager.destroy(&mut (*device.raw_ptr()).events.destroy);
-    }
-    *device.event_manager.borrow_mut() = Some(event_manager);
-
-    device
-  }
-
-  fn destroy(&self) {
-    self.seat_event_manager.destroy_device(self);
-  }
-
-  pub fn raw_ptr(&self) -> *mut wlr_input_device {
-    self.device
-  }
-
-  pub fn device_type(&self) -> DeviceType {
-    unsafe {
-      let device = &*self.device;
-      match device.type_ {
-        type_ if type_ == wlr_input_device_type_WLR_INPUT_DEVICE_KEYBOARD => {
-          DeviceType::Keyboard(device.__bindgen_anon_1.keyboard)
-        }
-        type_ if type_ == wlr_input_device_type_WLR_INPUT_DEVICE_POINTER => {
-          DeviceType::Pointer(device.__bindgen_anon_1.pointer)
-        }
-        _ => DeviceType::Unknown,
-      }
-    }
-  }
-
-  pub fn name(&self) -> Cow<str> {
-    unsafe { CStr::from_ptr((*self.device).name).to_string_lossy() }
-  }
-
-  pub fn output_name(&self) -> Option<Cow<str>> {
-    unsafe {
-      let output_name = (*self.device).output_name;
-      if output_name.is_null() {
-        None
-      } else {
-        Some(CStr::from_ptr(output_name).to_string_lossy())
-      }
-    }
-  }
-}
-
-impl PartialEq for Device {
-  fn eq(&self, other: &Device) -> bool {
-    self.device == other.device
-  }
+pub(crate) trait SeatEventHandler {
+  fn new_input(&self, device_ptr: *mut wlr_input_device);
+  fn inhibit_activate(&self);
+  fn inhibit_deactivate(&self);
 }
 
 wayland_listener!(
-  pub DeviceEventManager,
-  Weak<Device>,
+  pub(crate) SeatEventManager,
+  Box<dyn SeatEventHandler>,
   [
-    destroy => destroy_func: |this: &mut DeviceEventManager, _data: *mut libc::c_void,| unsafe {
-      if let Some(handler) = this.data.upgrade() {
-        handler.destroy();
-      }
-    };
+     new_input => new_input_func: |this: &mut SeatEventManager, data: *mut libc::c_void,| unsafe {
+         let ref mut handler = this.data;
+         handler.new_input(data as _)
+     };
+     inhibit_activate => inhibit_activate_func: |this: &mut SeatEventManager, _data: *mut libc::c_void,| unsafe {
+         let ref mut handler = this.data;
+         handler.inhibit_activate()
+     };
+     inhibit_deactivate => inhibit_deactivate_func: |this: &mut SeatEventManager, _data: *mut libc::c_void,| unsafe {
+         let ref mut handler = this.data;
+         handler.inhibit_deactivate()
+     };
   ]
 );
 
-pub(crate) trait InputDeviceManager {
-  fn has_any_input_device(&self) -> bool;
-  fn add_input_device(&mut self, device: Rc<Device>);
-  fn destroy_input_device(&mut self, destroyed_device: &Device);
-}
-
-pub struct SeatEventHandler {
+pub struct SeatManager {
   pub(crate) seat: *mut wlr_seat,
+  pub(crate) inhibit: *mut wlr_input_inhibit_manager,
 
-  pub(crate) cursor_manager: Rc<RefCell<dyn InputDeviceManager>>,
-  pub(crate) keyboard_manager: Rc<RefCell<dyn InputDeviceManager>>,
+  pub(crate) has_any_pointer: RefCell<bool>,
+  pub(crate) has_any_keyboard: RefCell<bool>,
+  pub(crate) exclusive_client: RefCell<*mut wl_client>,
+  pub(crate) on_new_device: Event<Rc<Device>>,
+
+  pub(crate) event_manager: RefCell<Option<Pin<Box<SeatEventManager>>>>,
 }
 
-impl SeatEventHandler {
+impl SeatManager {
+  pub(crate) fn init(
+    display: *mut wl_display,
+    backend: *mut wlr_backend,
+    seat: *mut wlr_seat,
+  ) -> Rc<SeatManager> {
+    debug!("SeatManager::init");
+
+    let inhibit = unsafe { wlr_input_inhibit_manager_create(display) };
+
+    let seat_manager = Rc::new(SeatManager {
+      seat,
+      inhibit,
+
+      has_any_pointer: RefCell::new(false),
+      has_any_keyboard: RefCell::new(false),
+      exclusive_client: RefCell::new(ptr::null_mut()),
+      on_new_device: Event::default(),
+
+      event_manager: RefCell::new(None),
+    });
+
+    let mut event_manager = SeatEventManager::new(Box::new(seat_manager.clone()));
+    unsafe {
+      event_manager.new_input(&mut (*backend).events.new_input);
+      event_manager.inhibit_activate(&mut (*inhibit).events.activate);
+      event_manager.inhibit_deactivate(&mut (*inhibit).events.deactivate);
+    }
+    *seat_manager.event_manager.borrow_mut() = Some(event_manager);
+
+    seat_manager
+  }
+
+  #[cfg(test)]
+  pub(crate) fn mock(
+    seat: *mut wlr_seat,
+    inhibit: *mut wlr_input_inhibit_manager,
+  ) -> Rc<SeatManager> {
+    Rc::new(SeatManager {
+      seat,
+      inhibit,
+
+      has_any_pointer: RefCell::new(false),
+      has_any_keyboard: RefCell::new(false),
+      exclusive_client: RefCell::new(ptr::null_mut()),
+      on_new_device: Event::default(),
+
+      event_manager: RefCell::new(None),
+    })
+  }
+
+  pub fn raw_seat(&self) -> *mut wlr_seat {
+    self.seat
+  }
+
   fn update_capabilities(&self) {
     let mut caps = 0;
-    if self.cursor_manager.borrow().has_any_input_device() {
+    if self.has_any_pointer.borrow().clone() {
       caps |= WL_SEAT_CAPABILITY_POINTER;
     }
-    if self.keyboard_manager.borrow().has_any_input_device() {
+    if self.has_any_keyboard.borrow().clone() {
       caps |= WL_SEAT_CAPABILITY_KEYBOARD;
     }
 
@@ -133,105 +120,69 @@ impl SeatEventHandler {
     }
   }
 
-  fn destroy_device(&self, device: &Device) {
-    debug!("SeatManager::destroy_device");
-    match device.device_type() {
-      DeviceType::Keyboard(_) => {
-        self
-          .keyboard_manager
-          .borrow_mut()
-          .destroy_input_device(device);
-      }
-      DeviceType::Pointer(_) => {
-        self
-          .cursor_manager
-          .borrow_mut()
-          .destroy_input_device(device);
-      }
-      _ => {}
-    }
-
+  pub(crate) fn set_has_any_pointer(&self, has_any_pointer: bool) {
+    *self.has_any_pointer.borrow_mut() = has_any_pointer;
     self.update_capabilities();
   }
-}
 
-trait SeatEventHandlerExt {
-  fn new_input(&self, device_ptr: *mut wlr_input_device);
-}
+  pub(crate) fn set_has_any_keyboard(&self, has_any_keyboard: bool) {
+    *self.has_any_keyboard.borrow_mut() = has_any_keyboard;
+    self.update_capabilities();
+  }
 
-impl SeatEventHandlerExt for Rc<SeatEventHandler> {
-  fn new_input(&self, device_ptr: *mut wlr_input_device) {
-    debug!("SeatManager::new_input");
-    let device = Device::init(self.clone(), device_ptr);
-
-    match device.device_type() {
-      DeviceType::Keyboard(_) => {
-        self.keyboard_manager.borrow_mut().add_input_device(device);
-
-        unsafe {
-          wlr_seat_set_keyboard(self.seat, device_ptr);
+  fn set_exclusive_client(&self, exclusive_client: *mut wl_client) {
+    if !exclusive_client.is_null() {
+      // Clear keyboard focus
+      unsafe {
+        if !(*self.seat).keyboard_state.focused_client.is_null() {
+          if (*(*self.seat).keyboard_state.focused_client).client != exclusive_client {
+            wlr_seat_keyboard_clear_focus(self.seat);
+          }
         }
       }
-      DeviceType::Pointer(_) => {
-        self.cursor_manager.borrow_mut().add_input_device(device);
+
+      // Clear pointer focus
+      unsafe {
+        if !(*self.seat).pointer_state.focused_client.is_null() {
+          if (*(*self.seat).pointer_state.focused_client).client != exclusive_client {
+            // TODO: Change to wlr_seat_pointer_notify_clear_focus after updating wlroots
+            wlr_seat_pointer_clear_focus(self.seat);
+          }
+        }
       }
-      _ => {}
     }
 
-    self.update_capabilities();
+    *self.exclusive_client.borrow_mut() = exclusive_client;
+  }
+
+  pub(crate) fn is_input_allowed(&self, window: &Window) -> bool {
+    let exclusive_client = self.exclusive_client.borrow().clone();
+    exclusive_client.is_null() || exclusive_client == window.wl_client()
   }
 }
 
-wayland_listener!(
-  pub SeatEventManager,
-  Rc<SeatEventHandler>,
-  [
-     new_input => new_input_func: |this: &mut SeatEventManager, data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
-         handler.new_input(data as _)
-     };
-  ]
-);
+impl SeatEventHandler for Rc<SeatManager> {
+  fn new_input(&self, device_ptr: *mut wlr_input_device) {
+    debug!("SeatManager::new_input");
+    let device = Device::init(device_ptr);
 
-#[allow(unused)]
-pub(crate) struct SeatManager {
-  seat: *mut wlr_seat,
-
-  event_manager: Pin<Box<SeatEventManager>>,
-  event_handler: Rc<SeatEventHandler>,
-}
-
-impl SeatManager {
-  pub(crate) fn init(
-    backend: *mut wlr_backend,
-    seat: *mut wlr_seat,
-    cursor_manager: Rc<RefCell<dyn InputDeviceManager>>,
-    keyboard_manager: Rc<RefCell<dyn InputDeviceManager>>,
-  ) -> SeatManager {
-    debug!("SeatManager::init");
-
-    let event_handler = Rc::new(SeatEventHandler {
-      seat,
-
-      cursor_manager,
-      keyboard_manager,
-    });
-
-    let mut event_manager = SeatEventManager::new(event_handler.clone());
+    self.on_new_device.fire(device);
+  }
+  fn inhibit_activate(&self) {
+    debug!("LayersEventHandler::inhibit_activate");
     unsafe {
-      event_manager.new_input(&mut (*backend).events.new_input);
+      self.set_exclusive_client((*self.inhibit).active_client);
     }
-
-    SeatManager {
-      seat,
-
-      event_manager,
-      event_handler,
-    }
+  }
+  fn inhibit_deactivate(&self) {
+    debug!("LayersEventHandler::inhibit_deactivate");
+    self.set_exclusive_client(ptr::null_mut());
   }
 }
 
 #[cfg(test)]
 unsafe fn wlr_seat_set_capabilities(_: *mut wlr_seat, _: u32) {}
 #[cfg(test)]
-unsafe fn wlr_seat_set_keyboard(_: *mut wlr_seat, _: *mut wlr_input_device) {}
+unsafe fn wlr_input_inhibit_manager_create(_: *mut wl_display) -> *mut wlr_input_inhibit_manager {
+  ptr::null_mut()
+}

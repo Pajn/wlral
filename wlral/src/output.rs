@@ -1,8 +1,7 @@
 use crate::geometry::{Displacement, Point, Rectangle, Size, TransformMatrix};
-use crate::output_manager::OutputManagerImpl;
 use crate::window::Window;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
-use crate::window_manager::WindowManager;
+use crate::{event::EventOnce, window_manager::WindowManager};
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::ptr;
@@ -13,12 +12,13 @@ use wlroots_sys::*;
 pub struct Output {
   pub(crate) wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
   pub(crate) window_manager: Rc<RefCell<WindowManager>>,
-  pub(crate) output_manager: Rc<OutputManagerImpl>,
 
   pub(crate) renderer: *mut wlr_renderer,
   pub(crate) output_layout: *mut wlr_output_layout,
   pub(crate) output: *mut wlr_output,
   pub(crate) created_at: Instant,
+
+  pub(crate) on_destroy: EventOnce<()>,
 
   pub(crate) event_manager: RefCell<Option<Pin<Box<OutputEventManager>>>>,
 }
@@ -196,7 +196,6 @@ pub(crate) trait OutputEventHandler {
   fn mode(&self);
   fn scale(&self);
   fn transform(&self);
-  fn destroy(self);
 }
 
 impl OutputEventHandler for Rc<Output> {
@@ -266,10 +265,6 @@ impl OutputEventHandler for Rc<Output> {
       .borrow_mut()
       .advise_output_update(self.clone());
   }
-
-  fn destroy(self) {
-    self.output_manager.destroy_output(self.clone())
-  }
 }
 
 wayland_listener!(
@@ -303,7 +298,7 @@ wayland_listener!(
     };
     destroy => destroy_func: |this: &mut OutputEventManager, _data: *mut libc::c_void,| unsafe {
       if let Some(handler) = this.data.upgrade() {
-        handler.destroy();
+        handler.on_destroy.fire(());
       }
     };
   ]

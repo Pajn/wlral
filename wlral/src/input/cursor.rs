@@ -1,11 +1,9 @@
+use super::seat::SeatManager;
 use crate::geometry::FPoint;
+use crate::input::device::{Device, DeviceType};
 use crate::input::event_filter::{EventFilter, EventFilterManager};
 use crate::input::events::*;
-use crate::input::seat::{Device, InputDeviceManager};
-use crate::{
-  output_manager::{OutputEventListener, OutputManager},
-  window_manager::WindowManager,
-};
+use crate::{output_manager::OutputManager, window_manager::WindowManager};
 use log::debug;
 use std::cell::RefCell;
 use std::ffi::CString;
@@ -15,59 +13,28 @@ use std::ptr;
 use std::rc::Rc;
 use wlroots_sys::*;
 
-#[cfg(test)]
-use mockall::*;
-
-#[cfg_attr(test, automock)]
-pub trait CursorManager {
-  /// If there are any pointer device (mouse, touchpad, etc.) attached
-  fn has_pointer_device(&self) -> bool;
-
-  /// Get the position of the cursor in global coordinates
-  fn position(&self) -> FPoint;
-
-  fn raw_cursor(&self) -> *mut wlr_cursor;
-}
-
-pub struct CursorManagerImpl {
+pub struct CursorManager {
   output_manager: Rc<dyn OutputManager>,
   window_manager: Rc<RefCell<WindowManager>>,
+  seat_manager: Rc<SeatManager>,
   event_filter_manager: Rc<RefCell<EventFilterManager>>,
-  seat: *mut wlr_seat,
   cursor: *mut wlr_cursor,
   cursor_mgr: *mut wlr_xcursor_manager,
-  pointers: Vec<Rc<Device>>,
+  pointers: RefCell<Vec<Rc<Device>>>,
 
-  event_manager: Option<Pin<Box<CursorEventManager>>>,
+  event_manager: RefCell<Option<Pin<Box<CursorEventManager>>>>,
 }
 
-impl CursorManager for CursorManagerImpl {
-  fn has_pointer_device(&self) -> bool {
-    !self.pointers.is_empty()
-  }
-
-  fn position(&self) -> FPoint {
-    unsafe {
-      FPoint {
-        x: (*self.cursor).x,
-        y: (*self.cursor).y,
-      }
-    }
-  }
-
-  fn raw_cursor(&self) -> *mut wlr_cursor {
-    self.cursor
-  }
-}
-
-impl CursorManagerImpl {
+impl CursorManager {
   pub(crate) fn init(
     output_manager: Rc<dyn OutputManager>,
     window_manager: Rc<RefCell<WindowManager>>,
+    seat_manager: Rc<SeatManager>,
     event_filter_manager: Rc<RefCell<EventFilterManager>>,
     output_layout: *mut wlr_output_layout,
-    seat: *mut wlr_seat,
-  ) -> Rc<RefCell<CursorManagerImpl>> {
+  ) -> Rc<CursorManager> {
+    debug!("CursorManager::init");
+
     let cursor = unsafe { wlr_cursor_create() };
     unsafe {
       wlr_cursor_attach_output_layout(cursor, output_layout);
@@ -80,39 +47,97 @@ impl CursorManagerImpl {
     let cursor_mgr = unsafe { wlr_xcursor_manager_create(ptr::null(), 24) };
     unsafe { wlr_xcursor_manager_load(cursor_mgr, 1.0) };
 
-    let cursor_manager = Rc::new(RefCell::new(CursorManagerImpl {
+    let cursor_manager = Rc::new(CursorManager {
       output_manager: output_manager.clone(),
       window_manager,
+      seat_manager: seat_manager.clone(),
       event_filter_manager,
-      seat,
       cursor,
       cursor_mgr,
-      pointers: vec![],
+      pointers: RefCell::new(vec![]),
 
-      event_manager: None,
-    }));
+      event_manager: RefCell::new(None),
+    });
 
-    output_manager.subscribe(cursor_manager.clone());
+    output_manager
+      .on_new_output()
+      .subscribe(listener!(cursor_manager => move |output| {
+        cursor_manager.refresh_device_mappings();
+        output.on_destroy.then(listener!(cursor_manager => move || {
+          cursor_manager.refresh_device_mappings();
+        }));
+      }));
 
-    debug!("CursorManager::init");
+    seat_manager
+      .on_new_device
+      .subscribe(listener!(cursor_manager => move |device| {
+        if let DeviceType::Pointer(_) = device.device_type() {
+          device.on_destroy.then(listener!(cursor_manager, device => move || {
+            debug!("CursorManager::destroy_input_device");
+            cursor_manager
+              .pointers
+              .borrow_mut()
+              .retain(|pointer| pointer.deref() != device.deref());
 
+            cursor_manager
+              .seat_manager
+              .set_has_any_pointer(cursor_manager.has_pointer_device());
+          }));
+
+          debug!("CursorManager::add_input_device");
+
+          unsafe {
+            wlr_cursor_attach_input_device(cursor, device.raw_ptr());
+          }
+
+          cursor_manager.pointers.borrow_mut().push(device.clone());
+
+          cursor_manager.refresh_device_mappings();
+          cursor_manager.seat_manager.set_has_any_pointer(true);
+        }
+      }));
+
+    #[allow(unused_mut)]
     let mut event_manager = CursorEventManager::new(cursor_manager.clone());
+    #[cfg(not(test))]
     unsafe {
-      event_manager.request_set_cursor(&mut (*seat).events.request_set_cursor);
+      event_manager.request_set_cursor(&mut (*seat_manager.raw_seat()).events.request_set_cursor);
       event_manager.motion(&mut (*cursor).events.motion);
       event_manager.motion_absolute(&mut (*cursor).events.motion_absolute);
       event_manager.button(&mut (*cursor).events.button);
       event_manager.axis(&mut (*cursor).events.axis);
       event_manager.frame(&mut (*cursor).events.frame);
     }
-    cursor_manager.borrow_mut().event_manager = Some(event_manager);
+    *cursor_manager.event_manager.borrow_mut() = Some(event_manager);
 
     cursor_manager
   }
 
+  #[cfg(test)]
+  pub(crate) fn mock(
+    output_manager: Rc<dyn OutputManager>,
+    window_manager: Rc<RefCell<WindowManager>>,
+    seat_manager: Rc<SeatManager>,
+    event_filter_manager: Rc<RefCell<EventFilterManager>>,
+    cursor: *mut wlr_cursor,
+    cursor_mgr: *mut wlr_xcursor_manager,
+  ) -> Rc<CursorManager> {
+    Rc::new(CursorManager {
+      output_manager: output_manager.clone(),
+      window_manager,
+      seat_manager: seat_manager.clone(),
+      event_filter_manager,
+      cursor,
+      cursor_mgr,
+      pointers: RefCell::new(vec![]),
+
+      event_manager: RefCell::new(None),
+    })
+  }
+
   fn refresh_device_mappings(&self) {
     debug!("CursorManager::refresh_device_mappings");
-    for pointer in self.pointers.iter() {
+    for pointer in self.pointers.borrow().iter() {
       if let Some(output_name) = pointer.output_name() {
         for output in self.output_manager.outputs().borrow().iter() {
           if output_name == output.name() {
@@ -138,33 +163,39 @@ impl CursorManagerImpl {
       .window_buffer_at(&position.into());
 
     if let Some(surface) = surface {
-      let focus_changed =
-        unsafe { (*self.seat).pointer_state.focused_surface != surface.wlr_surface() };
-      let surface_position =
-        position - FPoint::from(surface.buffer_extents().top_left()).as_displacement();
+      if self.seat_manager.is_input_allowed(&surface) {
+        let focus_changed = unsafe {
+          (*self.seat_manager.raw_seat())
+            .pointer_state
+            .focused_surface
+            != surface.wlr_surface()
+        };
+        let surface_position =
+          position - FPoint::from(surface.buffer_extents().top_left()).as_displacement();
 
-      // "Enter" the surface if necessary. This lets the client know that the
-      // cursor has entered one of its surfaces.
-      //
-      // Note that this gives the surface "pointer focus", which is distinct
-      // from cursor focus. You get pointer focus by moving the pointer over
-      // a window.
-      unsafe {
-        wlr_seat_pointer_notify_enter(
-          self.seat,
-          surface.wlr_surface(),
-          surface_position.x,
-          surface_position.y,
-        );
-        if !focus_changed {
-          // The enter event contains coordinates, so we only need to notify
-          // on motion if the focus did not change.
-          wlr_seat_pointer_notify_motion(
-            self.seat,
-            event.time_msec(),
+        // "Enter" the surface if necessary. This lets the client know that the
+        // cursor has entered one of its surfaces.
+        //
+        // Note that this gives the surface "pointer focus", which is distinct
+        // from cursor focus. You get pointer focus by moving the pointer over
+        // a window.
+        unsafe {
+          wlr_seat_pointer_notify_enter(
+            self.seat_manager.raw_seat(),
+            surface.wlr_surface(),
             surface_position.x,
             surface_position.y,
           );
+          if !focus_changed {
+            // The enter event contains coordinates, so we only need to notify
+            // on motion if the focus did not change.
+            wlr_seat_pointer_notify_motion(
+              self.seat_manager.raw_seat(),
+              event.time_msec(),
+              surface_position.x,
+              surface_position.y,
+            );
+          }
         }
       }
     } else {
@@ -177,7 +208,8 @@ impl CursorManagerImpl {
           CString::new("left_ptr").unwrap().as_ptr(),
           self.cursor,
         );
-        wlr_seat_pointer_clear_focus(self.seat);
+        // TODO: Change to wlr_seat_pointer_notify_clear_focus after updating wlroots
+        wlr_seat_pointer_clear_focus(self.seat_manager.raw_seat());
       }
     }
 
@@ -186,39 +218,24 @@ impl CursorManagerImpl {
       .borrow_mut()
       .handle_pointer_motion_event(&event);
   }
-}
 
-impl OutputEventListener for RefCell<CursorManagerImpl> {
-  fn new_output(&self, _output: &crate::output::Output) {
-    self.borrow().refresh_device_mappings()
-  }
-  fn destroyed_output(&self, _output: &crate::output::Output) {
-    self.borrow().refresh_device_mappings()
-  }
-}
-
-impl InputDeviceManager for CursorManagerImpl {
-  fn has_any_input_device(&self) -> bool {
-    self.has_pointer_device()
+  /// If there are any pointer device (mouse, touchpad, etc.) attached
+  pub fn has_pointer_device(&self) -> bool {
+    !self.pointers.borrow().is_empty()
   }
 
-  fn add_input_device(&mut self, device: Rc<Device>) {
-    debug!("CursorManager::add_input_device");
-
+  /// Get the position of the cursor in global coordinates
+  pub fn position(&self) -> FPoint {
     unsafe {
-      wlr_cursor_attach_input_device(self.cursor, device.raw_ptr());
+      FPoint {
+        x: (*self.cursor).x,
+        y: (*self.cursor).y,
+      }
     }
-
-    self.pointers.push(device);
-
-    self.refresh_device_mappings();
   }
 
-  fn destroy_input_device(&mut self, destroyed_pointer: &Device) {
-    debug!("CursorManager::destroy_input_device");
-    self
-      .pointers
-      .retain(|pointer| pointer.deref() != destroyed_pointer);
+  pub fn raw_cursor(&self) -> *mut wlr_cursor {
+    self.cursor
   }
 }
 
@@ -231,12 +248,11 @@ pub trait CursorEventHandler {
   fn frame(&self);
 }
 
-impl CursorEventHandler for Rc<RefCell<CursorManagerImpl>> {
+impl CursorEventHandler for Rc<CursorManager> {
   fn request_set_cursor(&self, event: *const wlr_seat_pointer_request_set_cursor_event) {
-    let manager = self.borrow();
     unsafe {
       // This event is rasied by the seat when a client provides a cursor image
-      let focused_client = (*manager.seat).pointer_state.focused_client;
+      let focused_client = (*self.seat_manager.raw_seat()).pointer_state.focused_client;
       // This can be sent by any client, so we check to make sure this one is
       // actually has pointer focus first.
       if focused_client == (*event).seat_client {
@@ -245,7 +261,7 @@ impl CursorEventHandler for Rc<RefCell<CursorManagerImpl>> {
         // on the output that it's currently on and continue to do so as the
         // cursor moves between outputs.
         wlr_cursor_set_surface(
-          manager.cursor,
+          self.cursor,
           (*event).surface,
           (*event).hotspot_x,
           (*event).hotspot_y,
@@ -258,7 +274,6 @@ impl CursorEventHandler for Rc<RefCell<CursorManagerImpl>> {
     let event = unsafe { AxisEvent::from_ptr(self.clone(), event) };
 
     let handled = self
-      .borrow()
       .event_filter_manager
       .borrow_mut()
       .handle_pointer_axis_event(&event);
@@ -266,7 +281,7 @@ impl CursorEventHandler for Rc<RefCell<CursorManagerImpl>> {
     if !handled {
       unsafe {
         wlr_seat_pointer_notify_axis(
-          self.borrow().seat,
+          self.seat_manager.raw_seat(),
           event.time_msec(),
           event.orientation(),
           event.delta(),
@@ -281,7 +296,6 @@ impl CursorEventHandler for Rc<RefCell<CursorManagerImpl>> {
     let event = unsafe { ButtonEvent::from_ptr(self.clone(), event) };
 
     let handled = self
-      .borrow()
       .event_filter_manager
       .borrow_mut()
       .handle_pointer_button_event(&event);
@@ -289,25 +303,20 @@ impl CursorEventHandler for Rc<RefCell<CursorManagerImpl>> {
     if !handled {
       if event.state() == ButtonState::Pressed {
         let surface = self
-          .borrow()
           .window_manager
           .borrow()
-          .window_buffer_at(&self.borrow().position().into());
+          .window_buffer_at(&self.position().into());
 
         if let Some(surface) = surface {
           if surface.can_receive_focus() {
-            self
-              .borrow()
-              .window_manager
-              .borrow_mut()
-              .focus_window(surface);
+            self.window_manager.borrow_mut().focus_window(surface);
           }
         }
       }
 
       unsafe {
         wlr_seat_pointer_notify_button(
-          self.borrow().seat,
+          self.seat_manager.raw_seat(),
           event.time_msec(),
           event.button(),
           event.state().as_raw(),
@@ -327,7 +336,7 @@ impl CursorEventHandler for Rc<RefCell<CursorManagerImpl>> {
   fn motion(&self, event: *const wlr_event_pointer_motion) {
     let event = unsafe { RelativeMotionEvent::from_ptr(self.clone(), event) };
 
-    self.borrow().process_motion(MotionEvent::Relative(event));
+    self.process_motion(MotionEvent::Relative(event));
   }
 
   // This event is forwarded by the cursor when a pointer emits an absolute
@@ -339,7 +348,7 @@ impl CursorEventHandler for Rc<RefCell<CursorManagerImpl>> {
   fn motion_absolute(&self, event: *const wlr_event_pointer_motion_absolute) {
     let event = unsafe { AbsoluteMotionEvent::from_ptr(self.clone(), event) };
 
-    self.borrow().process_motion(MotionEvent::Absolute(event));
+    self.process_motion(MotionEvent::Absolute(event));
   }
 
   fn frame(&self) {
@@ -349,14 +358,14 @@ impl CursorEventHandler for Rc<RefCell<CursorManagerImpl>> {
     // same time, in which case a frame event won't be sent in between.
     // Notify the client with pointer focus of the frame event.
     unsafe {
-      wlr_seat_pointer_notify_frame(self.borrow().seat);
+      wlr_seat_pointer_notify_frame(self.seat_manager.raw_seat());
     }
   }
 }
 
 wayland_listener!(
   pub CursorEventManager,
-  Rc<RefCell<CursorManagerImpl>>,
+  Rc<CursorManager>,
   [
     request_set_cursor => request_set_cursor_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
@@ -388,42 +397,29 @@ wayland_listener!(
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::input::seat::SeatEventHandler;
+  use crate::input::seat::SeatManager;
   use crate::output_manager::MockOutputManager;
-  use crate::test_util::*;
+  use crate::{event::Event, test_util::*};
   use std::ptr;
   use std::rc::Rc;
 
-  struct KeyboardManager;
-
-  impl InputDeviceManager for KeyboardManager {
-    fn has_any_input_device(&self) -> bool {
-      false
-    }
-    fn add_input_device(&mut self, _: Rc<Device>) {
-      // unimplemented!();
-    }
-    fn destroy_input_device(&mut self, _: &Device) {
-      // unimplemented!();
-    }
-  }
-
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
-    let output_manager = Rc::new(MockOutputManager::default());
-    let window_manager = Rc::new(RefCell::new(WindowManager::init(ptr::null_mut())));
+    let mut output_manager = MockOutputManager::default();
+    output_manager
+      .expect_on_new_output()
+      .return_const(Event::default());
+    let output_manager = Rc::new(output_manager);
+    let seat_manager = SeatManager::mock(ptr::null_mut(), ptr::null_mut());
+    let window_manager = Rc::new(RefCell::new(WindowManager::init(seat_manager.clone())));
     let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
-    let cursor_manager = Rc::new(RefCell::new(CursorManagerImpl {
+    let cursor_manager = CursorManager::init(
       output_manager,
-      window_manager,
+      window_manager.clone(),
+      seat_manager.clone(),
       event_filter_manager,
-      seat: ptr::null_mut(),
-      cursor: ptr::null_mut(),
-      cursor_mgr: ptr::null_mut(),
-      pointers: vec![],
-
-      event_manager: None,
-    }));
+      ptr::null_mut(),
+    );
 
     let mut raw_pointer = wlr_pointer {
       impl_: ptr::null(),
@@ -463,15 +459,10 @@ mod tests {
 
     let destroy_signal = WlSignal::from_ptr(&mut device.events.destroy);
 
-    let seat_event_handler = Rc::new(SeatEventHandler {
-      seat: ptr::null_mut(),
-      cursor_manager: cursor_manager.clone(),
-      keyboard_manager: Rc::new(RefCell::new(KeyboardManager)),
-    });
-    let device = Device::init(seat_event_handler, &mut device);
+    let device = Device::init(&mut device);
     let weak_device = Rc::downgrade(&device);
-    cursor_manager.borrow_mut().add_input_device(device);
-    let pointer = cursor_manager.borrow().pointers.first().unwrap().clone();
+    seat_manager.on_new_device.fire(device);
+    let pointer = cursor_manager.pointers.borrow().first().unwrap().clone();
 
     let weak_pointer = Rc::downgrade(&pointer);
     drop(pointer);
@@ -479,16 +470,14 @@ mod tests {
     assert!(weak_device.upgrade().is_some());
     assert!(weak_pointer.upgrade().is_some());
     assert!(destroy_signal.listener_count() == 1);
-    assert!(cursor_manager.borrow().has_pointer_device());
-    assert!(cursor_manager.borrow().has_any_input_device());
+    assert!(cursor_manager.has_pointer_device());
 
     destroy_signal.emit();
 
     assert!(weak_device.upgrade().is_none());
     assert!(weak_pointer.upgrade().is_none());
     assert!(destroy_signal.listener_count() == 0);
-    assert!(!cursor_manager.borrow().has_pointer_device());
-    assert!(!cursor_manager.borrow().has_any_input_device());
+    assert!(!cursor_manager.has_pointer_device());
   }
 }
 

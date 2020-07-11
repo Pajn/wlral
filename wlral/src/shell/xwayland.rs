@@ -10,8 +10,7 @@ use std::cell::RefCell;
 use std::env;
 use std::ffi::CStr;
 use std::pin::Pin;
-use std::rc::Rc;
-use wayland_sys::server::wl_display;
+use std::{ptr, rc::Rc};
 use wlroots_sys::*;
 
 /// As XWayland does not support serials we use this constant value
@@ -35,6 +34,10 @@ impl XwaylandSurface {
 }
 
 impl SurfaceExt for XwaylandSurface {
+  fn wl_resource(&self) -> *mut wl_resource {
+    ptr::null_mut()
+  }
+
   fn wlr_surface(&self) -> *mut wlr_surface {
     unsafe { (*self.0).surface }
   }
@@ -209,7 +212,7 @@ pub struct XwaylandEventHandler {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
   output_manager: Rc<dyn OutputManager>,
   window_manager: Rc<RefCell<WindowManager>>,
-  cursor_manager: Rc<RefCell<dyn CursorManager>>,
+  cursor_manager: Rc<CursorManager>,
 }
 impl XwaylandEventHandler {
   fn new_surface(&mut self, xwayland_surface: *mut wlr_xwayland_surface) {
@@ -273,7 +276,7 @@ impl XwaylandManager {
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
     output_manager: Rc<dyn OutputManager>,
     window_manager: Rc<RefCell<WindowManager>>,
-    cursor_manager: Rc<RefCell<dyn CursorManager>>,
+    cursor_manager: Rc<CursorManager>,
     display: *mut wl_display,
     compositor: *mut wlr_compositor,
   ) -> XwaylandManager {

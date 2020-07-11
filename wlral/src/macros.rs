@@ -101,7 +101,7 @@ macro_rules! wayland_listener {
         }))
       }
 
-      $($(pub(crate) unsafe extern "C" fn $listener(&mut self, signal: *mut $crate::wayland_sys::server::wl_signal) {
+      $($(#[cfg_attr(test, allow(dead_code))] pub(crate) unsafe extern "C" fn $listener(&mut self, signal: *mut $crate::wayland_sys::server::wl_signal) {
           if self.$listener.is_some() {
             self.$listener = None;
             panic!("Listener $listener is already bound");
@@ -125,7 +125,7 @@ macro_rules! wayland_listener {
           );
       })*)*
 
-      $($(pub(crate) unsafe extern "C" fn $listener_func(listener:
+      $($(#[cfg_attr(test, allow(dead_code))] pub(crate) unsafe extern "C" fn $listener_func(listener:
                                                 *mut $crate::wayland_sys::server::wl_listener,
                                                 data: *mut $crate::libc::c_void) {
         let manager: &mut $struct_name = &mut (*container_of!(listener,
@@ -160,6 +160,23 @@ macro_rules! wayland_listener {
       }
     }
   }
+}
+
+/// Makes moving clones into closures more convenient
+#[macro_export]
+macro_rules! listener {
+    ($($n:ident),+ => move || $body:expr) => (
+        {
+            $( let $n = $n.clone(); )+
+            Box::new(move |_| $body)
+        }
+    );
+    ($($n:ident),+ => move |$p:pat| $body:expr) => (
+        {
+            $( let $n = $n.clone(); )+
+            Box::new(move |$p| $body)
+        }
+    );
 }
 
 #[cfg(test)]

@@ -31,6 +31,7 @@ impl Surface {
 use Surface::*;
 
 pub(crate) trait SurfaceExt {
+  fn wl_resource(&self) -> *mut wl_resource;
   fn wlr_surface(&self) -> *mut wlr_surface;
   fn parent_wlr_surface(&self) -> Option<*mut wlr_surface>;
   fn buffer_displacement(&self) -> Displacement;
@@ -63,6 +64,16 @@ pub(crate) trait SurfaceExt {
 }
 
 impl SurfaceExt for Surface {
+  fn wl_resource(&self) -> *mut wl_resource {
+    match self {
+      Layer(surface) => surface.wl_resource(),
+      Xdg(surface) => surface.wl_resource(),
+      Xwayland(surface) => surface.wl_resource(),
+      #[cfg(test)]
+      Null => std::ptr::null_mut(),
+    }
+  }
+
   fn wlr_surface(&self) -> *mut wlr_surface {
     match self {
       Layer(surface) => surface.wlr_surface(),

@@ -1,6 +1,6 @@
 use crate::geometry::Point;
 use crate::surface::{Surface, SurfaceExt};
-use crate::window::Window;
+use crate::{input::seat::SeatManager, window::Window};
 use log::warn;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -52,7 +52,7 @@ impl WindowLayers {
 }
 
 pub struct WindowManager {
-  seat: *mut wlr_seat,
+  seat_manager: Rc<SeatManager>,
   layers: WindowLayers,
 }
 
@@ -67,9 +67,9 @@ impl std::fmt::Debug for WindowManager {
 }
 
 impl WindowManager {
-  pub fn init(seat: *mut wlr_seat) -> WindowManager {
+  pub fn init(seat_manager: Rc<SeatManager>) -> WindowManager {
     WindowManager {
-      seat,
+      seat_manager,
       layers: WindowLayers::default(),
     }
   }
@@ -111,7 +111,11 @@ impl WindowManager {
 
   /// Returns the window that holds keyboard focus
   pub fn focused_window(&self) -> Option<Rc<Window>> {
-    let focused_surface = unsafe { (*self.seat).keyboard_state.focused_surface };
+    let focused_surface = unsafe {
+      (*self.seat_manager.raw_seat())
+        .keyboard_state
+        .focused_surface
+    };
     self
       .layers
       .all_windows()
@@ -121,7 +125,11 @@ impl WindowManager {
   /// If the window have keyboard focus
   pub fn window_has_focus(&self, window: &Window) -> bool {
     let wlr_surface = window.wlr_surface();
-    let focused_surface = unsafe { (*self.seat).keyboard_state.focused_surface };
+    let focused_surface = unsafe {
+      (*self.seat_manager.raw_seat())
+        .keyboard_state
+        .focused_surface
+    };
     wlr_surface == focused_surface
   }
 
@@ -131,9 +139,15 @@ impl WindowManager {
       warn!("Window can not receive focus");
       return;
     }
+    if !self.seat_manager.is_input_allowed(&window) {
+      warn!("Refusing to set focus, input is inhibited");
+      return;
+    }
     let wlr_surface = window.wlr_surface();
     unsafe {
-      let old_wlr_surface = (*self.seat).keyboard_state.focused_surface;
+      let old_wlr_surface = (*self.seat_manager.raw_seat())
+        .keyboard_state
+        .focused_surface;
 
       if wlr_surface == old_wlr_surface {
         return;
@@ -159,14 +173,32 @@ impl WindowManager {
       // Tell the seat to have the keyboard enter this window. wlroots will keep
       // track of this and automatically send key events to the appropriate
       // clients without additional work on your part.
-      let keyboard = wlr_seat_get_keyboard(self.seat);
+      let keyboard = wlr_seat_get_keyboard(self.seat_manager.raw_seat());
       wlr_seat_keyboard_notify_enter(
-        self.seat,
+        self.seat_manager.raw_seat(),
         wlr_surface,
         (*keyboard).keycodes.as_mut_ptr(),
         (*keyboard).num_keycodes,
         &mut (*keyboard).modifiers,
       );
+    }
+  }
+
+  /// Blurs the currently focused window without focusing another one
+  pub fn blur(&self) {
+    unsafe {
+      let old_wlr_surface = (*self.seat_manager.raw_seat())
+        .keyboard_state
+        .focused_surface;
+      if !old_wlr_surface.is_null() {
+        // Deactivate the previously focused window. This lets the client know
+        // it no longer has focus and the client will repaint accordingly, e.g.
+        // stop displaying a caret.
+        let surface = Surface::from_wlr_surface(old_wlr_surface);
+        surface.set_activated(false);
+      }
+
+      wlr_seat_keyboard_clear_focus(self.seat_manager.raw_seat());
     }
   }
 }
@@ -205,7 +237,7 @@ impl WindowManagerExt for Rc<RefCell<WindowManager>> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::input::cursor::MockCursorManager;
+  use crate::input::{cursor::CursorManager, event_filter::EventFilterManager};
   use crate::output_manager::MockOutputManager;
   use crate::window::WindowEventHandler;
   use crate::window_management_policy::WmPolicyManager;
@@ -215,13 +247,22 @@ mod tests {
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
     let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
-    let cursor_manager = Rc::new(RefCell::new(MockCursorManager::default()));
-    let window_manager = Rc::new(RefCell::new(WindowManager::init(ptr::null_mut())));
+    let output_manager = Rc::new(MockOutputManager::default());
+    let seat_manager = SeatManager::mock(ptr::null_mut(), ptr::null_mut());
+    let window_manager = Rc::new(RefCell::new(WindowManager::init(seat_manager.clone())));
+    let cursor_manager = CursorManager::mock(
+      output_manager.clone(),
+      window_manager.clone(),
+      seat_manager.clone(),
+      Rc::new(RefCell::new(EventFilterManager::new())),
+      ptr::null_mut(),
+      ptr::null_mut(),
+    );
     let window = window_manager.new_window(WindowLayer::Normal, Surface::Null);
 
     let mut event_handler = WindowEventHandler {
       wm_policy_manager,
-      output_manager: Rc::new(MockOutputManager::default()),
+      output_manager: output_manager.clone(),
       window_manager: window_manager.clone(),
       cursor_manager: cursor_manager.clone(),
       window: Rc::downgrade(&window),

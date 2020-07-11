@@ -9,7 +9,6 @@ use log::{debug, error, trace};
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
-use wayland_sys::server::wl_display;
 use wlroots_sys::*;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -66,6 +65,10 @@ impl LayerSurface {
 }
 
 impl SurfaceExt for LayerSurface {
+  fn wl_resource(&self) -> *mut wl_resource {
+    unsafe { (*self.0).resource }
+  }
+
   fn wlr_surface(&self) -> *mut wlr_surface {
     unsafe { (*self.0).surface }
   }
@@ -111,7 +114,7 @@ impl SurfaceExt for LayerSurface {
   }
 
   fn can_receive_focus(&self) -> bool {
-    false
+    unsafe { (*self.current().0).keyboard_interactive }
   }
   fn activated(&self) -> bool {
     false
@@ -187,7 +190,7 @@ pub struct LayersEventHandler {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
   output_manager: Rc<dyn OutputManager>,
   window_manager: Rc<RefCell<WindowManager>>,
-  cursor_manager: Rc<RefCell<dyn CursorManager>>,
+  cursor_manager: Rc<CursorManager>,
 }
 impl LayersEventHandler {
   fn new_surface(&mut self, layer_surface: *mut wlr_layer_surface_v1) {
@@ -363,7 +366,7 @@ impl LayerShellManager {
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
     output_manager: Rc<dyn OutputManager>,
     window_manager: Rc<RefCell<WindowManager>>,
-    cursor_manager: Rc<RefCell<dyn CursorManager>>,
+    cursor_manager: Rc<CursorManager>,
     display: *mut wl_display,
   ) -> LayerShellManager {
     debug!("LayerShellManager::init");
