@@ -277,7 +277,7 @@ wayland_listener!(
 
 pub struct XdgEventHandler {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-  output_manager: Rc<RefCell<dyn OutputManager>>,
+  output_manager: Rc<dyn OutputManager>,
   window_manager: Rc<RefCell<WindowManager>>,
   cursor_manager: Rc<RefCell<dyn CursorManager>>,
 }
@@ -361,7 +361,7 @@ pub(crate) struct XdgManager {
 impl XdgManager {
   pub(crate) fn init(
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-    output_manager: Rc<RefCell<dyn OutputManager>>,
+    output_manager: Rc<dyn OutputManager>,
     window_manager: Rc<RefCell<WindowManager>>,
     cursor_manager: Rc<RefCell<dyn CursorManager>>,
     display: *mut wl_display,

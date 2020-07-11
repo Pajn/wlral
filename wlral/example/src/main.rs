@@ -18,7 +18,7 @@ enum Gesture {
 }
 
 struct FloatingWindowManager {
-  output_manager: Rc<RefCell<dyn OutputManager>>,
+  output_manager: Rc<dyn OutputManager>,
   window_manager: Rc<RefCell<WindowManager>>,
 
   gesture: Option<Gesture>,
@@ -29,12 +29,12 @@ impl FloatingWindowManager {
   fn output_for_window(&self, window: &Window) -> Option<Rc<Output>> {
     self
       .output_manager
-      .borrow()
       .outputs()
+      .borrow()
       .iter()
       .find(|output| output.extents().overlaps(&window.extents()))
       .cloned()
-      .or_else(|| self.output_manager.borrow().outputs().first().cloned())
+      .or_else(|| self.output_manager.outputs().borrow().first().cloned())
   }
 }
 

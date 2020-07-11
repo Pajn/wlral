@@ -1,5 +1,7 @@
 use log::debug;
+use std::borrow::Cow;
 use std::cell::RefCell;
+use std::ffi::CStr;
 use std::pin::Pin;
 use std::rc::{Rc, Weak};
 use wlroots_sys::*;
@@ -50,6 +52,10 @@ impl Device {
     self.seat_event_manager.destroy_device(self);
   }
 
+  pub fn raw_ptr(&self) -> *mut wlr_input_device {
+    self.device
+  }
+
   pub fn device_type(&self) -> DeviceType {
     unsafe {
       let device = &*self.device;
@@ -65,8 +71,19 @@ impl Device {
     }
   }
 
-  pub fn raw_ptr(&self) -> *mut wlr_input_device {
-    self.device
+  pub fn name(&self) -> Cow<str> {
+    unsafe { CStr::from_ptr((*self.device).name).to_string_lossy() }
+  }
+
+  pub fn output_name(&self) -> Option<Cow<str>> {
+    unsafe {
+      let output_name = (*self.device).output_name;
+      if output_name.is_null() {
+        None
+      } else {
+        Some(CStr::from_ptr(output_name).to_string_lossy())
+      }
+    }
   }
 }
 
@@ -117,6 +134,7 @@ impl SeatEventHandler {
   }
 
   fn destroy_device(&self, device: &Device) {
+    debug!("SeatManager::destroy_device");
     match device.device_type() {
       DeviceType::Keyboard(_) => {
         self
@@ -143,6 +161,7 @@ trait SeatEventHandlerExt {
 
 impl SeatEventHandlerExt for Rc<SeatEventHandler> {
   fn new_input(&self, device_ptr: *mut wlr_input_device) {
+    debug!("SeatManager::new_input");
     let device = Device::init(self.clone(), device_ptr);
 
     match device.device_type() {

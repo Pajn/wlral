@@ -14,16 +14,16 @@ use mockall::*;
 
 wayland_listener!(
   pub OutputManagerEventManager,
-  Rc<RefCell<OutputManagerImpl>>,
+  Rc<OutputManagerImpl>,
   [
     new_output => new_output_func: |this: &mut OutputManagerEventManager, data: *mut libc::c_void,| unsafe {
       let ref mut manager = this.data;
-      let wm_policy_manager = manager.borrow().wm_policy_manager.clone();
-      let window_manager = manager.borrow().window_manager.clone();
+      let wm_policy_manager = manager.wm_policy_manager.clone();
+      let window_manager = manager.window_manager.clone();
       let output_manager = manager.clone();
-      let renderer = manager.borrow().renderer;
-      let output_layout = manager.borrow().output_layout;
-      manager.borrow_mut().new_output(
+      let renderer = manager.renderer;
+      let output_layout = manager.output_layout;
+      manager.new_output(
         Output {
           wm_policy_manager,
           window_manager,
@@ -39,9 +39,14 @@ wayland_listener!(
   ]
 );
 
+pub trait OutputEventListener {
+  fn new_output(&self, output: &Output);
+  fn destroyed_output(&self, output: &Output);
+}
 #[cfg_attr(test, automock)]
 pub trait OutputManager {
-  fn outputs(&self) -> &Vec<Rc<Output>>;
+  fn outputs(&self) -> &RefCell<Vec<Rc<Output>>>;
+  fn subscribe(&self, listener: Rc<dyn OutputEventListener>);
 }
 
 pub struct OutputManagerImpl {
@@ -51,14 +56,19 @@ pub struct OutputManagerImpl {
   output_layout: *mut wlr_output_layout,
   #[allow(unused)]
   xdg_output_manager_v1: *mut wlr_xdg_output_manager_v1,
-  outputs: Vec<Rc<Output>>,
+  outputs: RefCell<Vec<Rc<Output>>>,
+  event_listeners: RefCell<Vec<Rc<dyn OutputEventListener>>>,
 
-  event_manager: Option<Pin<Box<OutputManagerEventManager>>>,
+  event_manager: RefCell<Option<Pin<Box<OutputManagerEventManager>>>>,
 }
 
 impl OutputManager for OutputManagerImpl {
-  fn outputs(&self) -> &Vec<Rc<Output>> {
+  fn outputs(&self) -> &RefCell<Vec<Rc<Output>>> {
     &self.outputs
+  }
+
+  fn subscribe(&self, listener: Rc<dyn OutputEventListener>) {
+    self.event_listeners.borrow_mut().push(listener);
   }
 }
 
@@ -70,19 +80,20 @@ impl OutputManagerImpl {
     backend: *mut wlr_backend,
     renderer: *mut wlr_renderer,
     output_layout: *mut wlr_output_layout,
-  ) -> Rc<RefCell<OutputManagerImpl>> {
+  ) -> Rc<OutputManagerImpl> {
     let xdg_output_manager_v1 = unsafe { wlr_xdg_output_manager_v1_create(display, output_layout) };
 
-    let output_manager = Rc::new(RefCell::new(OutputManagerImpl {
+    let output_manager = Rc::new(OutputManagerImpl {
       wm_policy_manager,
       window_manager,
       renderer,
       output_layout,
       xdg_output_manager_v1,
-      outputs: vec![],
+      outputs: RefCell::new(vec![]),
+      event_listeners: RefCell::new(vec![]),
 
-      event_manager: None,
-    }));
+      event_manager: RefCell::new(None),
+    });
 
     debug!("OutputManager::init");
 
@@ -92,12 +103,12 @@ impl OutputManagerImpl {
       event_manager.new_output(&mut (*backend).events.new_output);
     }
 
-    output_manager.borrow_mut().event_manager = Some(event_manager);
+    *output_manager.event_manager.borrow_mut() = Some(event_manager);
 
     output_manager
   }
 
-  fn new_output(&mut self, output: Output) {
+  fn new_output(&self, output: Output) {
     let description: &CStr = unsafe { CStr::from_ptr((*output.raw_ptr()).description) };
 
     debug!(
@@ -130,17 +141,30 @@ impl OutputManagerImpl {
 
     output.bind_events();
 
-    self.outputs.push(output.clone());
+    self.outputs.borrow_mut().push(output.clone());
 
+    for listener in self.event_listeners.borrow().iter() {
+      listener.new_output(&output);
+    }
     self
       .wm_policy_manager
       .borrow_mut()
       .advise_output_create(output);
   }
 
-  pub(crate) fn destroy_output(&mut self, destroyed_output: &Output) {
+  pub(crate) fn destroy_output(&self, destroyed_output: Rc<Output>) {
+    for listener in self.event_listeners.borrow().iter() {
+      listener.destroyed_output(&destroyed_output);
+    }
+
+    self
+      .wm_policy_manager
+      .borrow_mut()
+      .advise_output_delete(destroyed_output.clone());
+
     self
       .outputs
+      .borrow_mut()
       .retain(|output| output.raw_ptr() != destroyed_output.raw_ptr());
   }
 }
@@ -156,16 +180,17 @@ mod tests {
   fn it_drops_and_cleans_up_on_destroy() {
     let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
     let window_manager = Rc::new(RefCell::new(WindowManager::init(ptr::null_mut())));
-    let output_manager = Rc::new(RefCell::new(OutputManagerImpl {
+    let output_manager = Rc::new(OutputManagerImpl {
       wm_policy_manager: wm_policy_manager.clone(),
       window_manager: window_manager.clone(),
       renderer: ptr::null_mut(),
       output_layout: ptr::null_mut(),
       xdg_output_manager_v1: ptr::null_mut(),
-      outputs: vec![],
+      outputs: RefCell::new(vec![]),
+      event_listeners: RefCell::new(vec![]),
 
-      event_manager: None,
-    }));
+      event_manager: RefCell::new(None),
+    });
     let output = Rc::new(Output {
       wm_policy_manager,
       window_manager,
@@ -177,14 +202,14 @@ mod tests {
       event_manager: RefCell::new(None),
     });
 
-    output_manager.borrow_mut().outputs.push(output.clone());
+    output_manager.outputs.borrow_mut().push(output.clone());
 
     let weak_output = Rc::downgrade(&output);
     drop(output);
 
     weak_output.upgrade().unwrap().destroy();
 
-    assert!(output_manager.borrow().outputs.len() == 0);
+    assert!(output_manager.outputs.borrow().len() == 0);
     assert!(weak_output.upgrade().is_none());
   }
 }

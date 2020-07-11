@@ -13,7 +13,7 @@ use wlroots_sys::*;
 pub struct Output {
   pub(crate) wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
   pub(crate) window_manager: Rc<RefCell<WindowManager>>,
-  pub(crate) output_manager: Rc<RefCell<OutputManagerImpl>>,
+  pub(crate) output_manager: Rc<OutputManagerImpl>,
 
   pub(crate) renderer: *mut wlr_renderer,
   pub(crate) output_layout: *mut wlr_output_layout,
@@ -98,9 +98,24 @@ impl Output {
     unsafe { TransformMatrix((*self.output).transform_matrix) }
   }
 
+  pub fn name(&self) -> Cow<str> {
+    let name: &CStr = unsafe { CStr::from_ptr((*self.output).name.as_ptr()) };
+    name.to_string_lossy()
+  }
+
   pub fn description(&self) -> Cow<str> {
     let description: &CStr = unsafe { CStr::from_ptr((*self.output).description) };
     description.to_string_lossy()
+  }
+
+  pub fn make(&self) -> Cow<str> {
+    let make: &CStr = unsafe { CStr::from_ptr((*self.output).make.as_ptr()) };
+    make.to_string_lossy()
+  }
+
+  pub fn model(&self) -> Cow<str> {
+    let model: &CStr = unsafe { CStr::from_ptr((*self.output).model.as_ptr()) };
+    model.to_string_lossy()
   }
 
   pub(crate) fn render_window(&self, frame_time: &timespec, surface: Rc<Window>) {
@@ -253,11 +268,7 @@ impl OutputEventHandler for Rc<Output> {
   }
 
   fn destroy(self) {
-    self
-      .wm_policy_manager
-      .borrow_mut()
-      .advise_output_delete(self.clone());
-    self.output_manager.borrow_mut().destroy_output(&self)
+    self.output_manager.destroy_output(self.clone())
   }
 }
 

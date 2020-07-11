@@ -24,7 +24,7 @@ pub struct Compositor {
   compositor: *mut wlr_compositor,
 
   output_layout: *mut wlr_output_layout,
-  output_manager: Rc<RefCell<OutputManagerImpl>>,
+  output_manager: Rc<OutputManagerImpl>,
 
   window_manager: Rc<RefCell<WindowManager>>,
   layer_shell_manager: LayerShellManager,
@@ -93,6 +93,7 @@ impl Compositor {
 
       let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
       let cursor_manager = CursorManagerImpl::init(
+        output_manager.clone(),
         window_manager.clone(),
         event_filter_manager.clone(),
         output_layout,
@@ -174,7 +175,7 @@ impl Compositor {
     }
   }
 
-  pub fn output_manager(&self) -> Rc<RefCell<dyn OutputManager>> {
+  pub fn output_manager(&self) -> Rc<dyn OutputManager> {
     self.output_manager.clone()
   }
 

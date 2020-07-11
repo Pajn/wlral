@@ -185,7 +185,7 @@ pub(crate) struct WindowFullscreenEvent {
 
 pub(crate) struct WindowEventHandler {
   pub(crate) wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-  pub(crate) output_manager: Rc<RefCell<dyn OutputManager>>,
+  pub(crate) output_manager: Rc<dyn OutputManager>,
   pub(crate) window_manager: Rc<RefCell<WindowManager>>,
   pub(crate) cursor_manager: Rc<RefCell<dyn CursorManager>>,
   pub(crate) window: Weak<Window>,
@@ -286,8 +286,8 @@ impl WindowEventHandler {
         fullscreen: event.fullscreen,
         output: self
           .output_manager
-          .borrow()
           .outputs()
+          .borrow()
           .iter()
           .find(|o| Some(o.raw_ptr()) == event.output)
           .cloned(),

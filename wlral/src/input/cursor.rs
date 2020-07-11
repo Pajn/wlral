@@ -2,7 +2,10 @@ use crate::geometry::FPoint;
 use crate::input::event_filter::{EventFilter, EventFilterManager};
 use crate::input::events::*;
 use crate::input::seat::{Device, InputDeviceManager};
-use crate::window_manager::WindowManager;
+use crate::{
+  output_manager::{OutputEventListener, OutputManager},
+  window_manager::WindowManager,
+};
 use log::debug;
 use std::cell::RefCell;
 use std::ffi::CString;
@@ -22,9 +25,12 @@ pub trait CursorManager {
 
   /// Get the position of the cursor in global coordinates
   fn position(&self) -> FPoint;
+
+  fn raw_cursor(&self) -> *mut wlr_cursor;
 }
 
 pub struct CursorManagerImpl {
+  output_manager: Rc<dyn OutputManager>,
   window_manager: Rc<RefCell<WindowManager>>,
   event_filter_manager: Rc<RefCell<EventFilterManager>>,
   seat: *mut wlr_seat,
@@ -48,17 +54,24 @@ impl CursorManager for CursorManagerImpl {
       }
     }
   }
+
+  fn raw_cursor(&self) -> *mut wlr_cursor {
+    self.cursor
+  }
 }
 
 impl CursorManagerImpl {
   pub(crate) fn init(
+    output_manager: Rc<dyn OutputManager>,
     window_manager: Rc<RefCell<WindowManager>>,
     event_filter_manager: Rc<RefCell<EventFilterManager>>,
     output_layout: *mut wlr_output_layout,
     seat: *mut wlr_seat,
   ) -> Rc<RefCell<CursorManagerImpl>> {
     let cursor = unsafe { wlr_cursor_create() };
-    unsafe { wlr_cursor_attach_output_layout(cursor, output_layout) };
+    unsafe {
+      wlr_cursor_attach_output_layout(cursor, output_layout);
+    };
 
     // Creates an xcursor manager, another wlroots utility which loads up
     // Xcursor themes to source cursor images from and makes sure that cursor
@@ -68,8 +81,9 @@ impl CursorManagerImpl {
     unsafe { wlr_xcursor_manager_load(cursor_mgr, 1.0) };
 
     let cursor_manager = Rc::new(RefCell::new(CursorManagerImpl {
-      event_filter_manager,
+      output_manager: output_manager.clone(),
       window_manager,
+      event_filter_manager,
       seat,
       cursor,
       cursor_mgr,
@@ -77,6 +91,8 @@ impl CursorManagerImpl {
 
       event_manager: None,
     }));
+
+    output_manager.subscribe(cursor_manager.clone());
 
     debug!("CursorManager::init");
 
@@ -94,8 +110,28 @@ impl CursorManagerImpl {
     cursor_manager
   }
 
+  fn refresh_device_mappings(&self) {
+    debug!("CursorManager::refresh_device_mappings");
+    for pointer in self.pointers.iter() {
+      if let Some(output_name) = pointer.output_name() {
+        for output in self.output_manager.outputs().borrow().iter() {
+          if output_name == output.name() {
+            unsafe {
+              wlr_cursor_map_input_to_output(self.cursor, pointer.raw_ptr(), output.raw_ptr());
+            }
+          }
+        }
+      }
+    }
+  }
+
   fn process_motion(&self, event: MotionEvent) {
-    let position = self.position();
+    let position = event.position();
+
+    unsafe {
+      wlr_cursor_warp(self.cursor, event.raw_device(), position.x(), position.y());
+    }
+
     let surface = self
       .window_manager
       .borrow()
@@ -152,24 +188,34 @@ impl CursorManagerImpl {
   }
 }
 
+impl OutputEventListener for RefCell<CursorManagerImpl> {
+  fn new_output(&self, _output: &crate::output::Output) {
+    self.borrow().refresh_device_mappings()
+  }
+  fn destroyed_output(&self, _output: &crate::output::Output) {
+    self.borrow().refresh_device_mappings()
+  }
+}
+
 impl InputDeviceManager for CursorManagerImpl {
   fn has_any_input_device(&self) -> bool {
     self.has_pointer_device()
   }
 
   fn add_input_device(&mut self, device: Rc<Device>) {
-    // We don't do anything special with pointers. All of our pointer handling
-    // is proxied through wlr_cursor. On another compositor, you might take this
-    // opportunity to do libinput configuration on the device to set
-    // acceleration, etc.
+    debug!("CursorManager::add_input_device");
+
     unsafe {
       wlr_cursor_attach_input_device(self.cursor, device.raw_ptr());
     }
 
     self.pointers.push(device);
+
+    self.refresh_device_mappings();
   }
 
   fn destroy_input_device(&mut self, destroyed_pointer: &Device) {
+    debug!("CursorManager::destroy_input_device");
     self
       .pointers
       .retain(|pointer| pointer.deref() != destroyed_pointer);
@@ -281,15 +327,6 @@ impl CursorEventHandler for Rc<RefCell<CursorManagerImpl>> {
   fn motion(&self, event: *const wlr_event_pointer_motion) {
     let event = unsafe { RelativeMotionEvent::from_ptr(self.clone(), event) };
 
-    let delta = event.delta();
-    unsafe {
-      wlr_cursor_move(
-        self.borrow().cursor,
-        event.raw_device(),
-        delta.delta_x(),
-        delta.delta_y(),
-      );
-    }
     self.borrow().process_motion(MotionEvent::Relative(event));
   }
 
@@ -302,10 +339,6 @@ impl CursorEventHandler for Rc<RefCell<CursorManagerImpl>> {
   fn motion_absolute(&self, event: *const wlr_event_pointer_motion_absolute) {
     let event = unsafe { AbsoluteMotionEvent::from_ptr(self.clone(), event) };
 
-    let pos = event.pos();
-    unsafe {
-      wlr_cursor_warp_absolute(self.borrow().cursor, event.raw_device(), pos.x(), pos.y());
-    }
     self.borrow().process_motion(MotionEvent::Absolute(event));
   }
 
@@ -356,6 +389,7 @@ wayland_listener!(
 mod tests {
   use super::*;
   use crate::input::seat::SeatEventHandler;
+  use crate::output_manager::MockOutputManager;
   use crate::test_util::*;
   use std::ptr;
   use std::rc::Rc;
@@ -376,9 +410,11 @@ mod tests {
 
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
+    let output_manager = Rc::new(MockOutputManager::default());
     let window_manager = Rc::new(RefCell::new(WindowManager::init(ptr::null_mut())));
     let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
     let cursor_manager = Rc::new(RefCell::new(CursorManagerImpl {
+      output_manager,
       window_manager,
       event_filter_manager,
       seat: ptr::null_mut(),
@@ -458,3 +494,10 @@ mod tests {
 
 #[cfg(test)]
 unsafe fn wlr_cursor_attach_input_device(_: *mut wlr_cursor, _: *mut wlr_input_device) {}
+#[cfg(test)]
+unsafe fn wlr_cursor_map_input_to_output(
+  _: *mut wlr_cursor,
+  _: *mut wlr_input_device,
+  _: *mut wlr_output,
+) {
+}

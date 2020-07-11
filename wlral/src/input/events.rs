@@ -28,6 +28,14 @@ pub trait InputEvent {
 pub trait CursorEvent {
   /// Get the position of the cursor in global coordinates
   fn position(&self) -> FPoint;
+
+  /// Get the change from the last positional value
+  ///
+  /// Note you should not cast this to a type with less precision,
+  /// otherwise you'll lose important motion data which can cause bugs
+  /// (e.g see [this fun wlc bug](https://github.com/Cloudef/wlc/issues/181)).
+  fn delta(&self) -> FDisplacement;
+  fn delta_unaccel(&self) -> FDisplacement;
 }
 
 /// Event that triggers when the pointer device scrolls (e.g using a wheel
@@ -86,6 +94,12 @@ impl InputEvent for AxisEvent {
 impl CursorEvent for AxisEvent {
   fn position(&self) -> FPoint {
     self.cursor_manager.borrow().position()
+  }
+  fn delta(&self) -> FDisplacement {
+    FDisplacement::ZERO
+  }
+  fn delta_unaccel(&self) -> FDisplacement {
+    CursorEvent::delta(self)
   }
 }
 
@@ -165,6 +179,12 @@ impl CursorEvent for ButtonEvent {
   fn position(&self) -> FPoint {
     self.cursor_manager.borrow().position()
   }
+  fn delta(&self) -> FDisplacement {
+    FDisplacement::ZERO
+  }
+  fn delta_unaccel(&self) -> FDisplacement {
+    self.delta()
+  }
 }
 
 /// Event that triggers when the pointer moves
@@ -196,6 +216,18 @@ impl CursorEvent for MotionEvent {
       MotionEvent::Absolute(event) => event.position(),
     }
   }
+  fn delta(&self) -> FDisplacement {
+    match self {
+      MotionEvent::Relative(event) => event.delta(),
+      MotionEvent::Absolute(event) => event.delta(),
+    }
+  }
+  fn delta_unaccel(&self) -> FDisplacement {
+    match self {
+      MotionEvent::Relative(event) => event.delta_unaccel(),
+      MotionEvent::Absolute(event) => event.delta_unaccel(),
+    }
+  }
 }
 
 pub struct RelativeMotionEvent {
@@ -218,20 +250,6 @@ impl RelativeMotionEvent {
   pub fn raw_event(&self) -> *const wlr_event_pointer_motion {
     self.event
   }
-
-  /// Get the change from the last positional value
-  ///
-  /// Note you should not cast this to a type with less precision,
-  /// otherwise you'll lose important motion data which can cause bugs
-  /// (e.g see [this fun wlc bug](https://github.com/Cloudef/wlc/issues/181)).
-  pub fn delta(&self) -> FDisplacement {
-    unsafe {
-      FDisplacement {
-        dx: (*self.event).delta_x,
-        dy: (*self.event).delta_y,
-      }
-    }
-  }
 }
 
 impl InputEvent for RelativeMotionEvent {
@@ -246,7 +264,25 @@ impl InputEvent for RelativeMotionEvent {
 
 impl CursorEvent for RelativeMotionEvent {
   fn position(&self) -> FPoint {
-    self.cursor_manager.borrow().position()
+    self.cursor_manager.borrow().position() + self.delta()
+  }
+
+  fn delta(&self) -> FDisplacement {
+    unsafe {
+      FDisplacement {
+        dx: (*self.event).delta_x,
+        dy: (*self.event).delta_y,
+      }
+    }
+  }
+
+  fn delta_unaccel(&self) -> FDisplacement {
+    unsafe {
+      FDisplacement {
+        dx: (*self.event).unaccel_dx,
+        dy: (*self.event).unaccel_dy,
+      }
+    }
   }
 }
 
@@ -270,16 +306,6 @@ impl AbsoluteMotionEvent {
   pub fn raw_event(&self) -> *const wlr_event_pointer_motion_absolute {
     self.event
   }
-
-  /// Get the absolute position of the pointer from this event
-  pub fn pos(&self) -> FPoint {
-    unsafe {
-      FPoint {
-        x: (*self.event).x,
-        y: (*self.event).y,
-      }
-    }
-  }
 }
 
 impl InputEvent for AbsoluteMotionEvent {
@@ -294,7 +320,29 @@ impl InputEvent for AbsoluteMotionEvent {
 
 impl CursorEvent for AbsoluteMotionEvent {
   fn position(&self) -> FPoint {
-    self.cursor_manager.borrow().position()
+    unsafe {
+      let mut x = 0.0;
+      let mut y = 0.0;
+
+      wlr_cursor_absolute_to_layout_coords(
+        self.cursor_manager.borrow().raw_cursor(),
+        self.raw_device(),
+        (*self.event).x,
+        (*self.event).y,
+        &mut x,
+        &mut y,
+      );
+
+      FPoint { x, y }
+    }
+  }
+
+  fn delta(&self) -> FDisplacement {
+    self.position() - self.cursor_manager.borrow().position()
+  }
+
+  fn delta_unaccel(&self) -> FDisplacement {
+    self.delta()
   }
 }
 

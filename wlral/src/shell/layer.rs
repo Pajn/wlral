@@ -185,7 +185,7 @@ wayland_listener!(
 
 pub struct LayersEventHandler {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-  output_manager: Rc<RefCell<dyn OutputManager>>,
+  output_manager: Rc<dyn OutputManager>,
   window_manager: Rc<RefCell<WindowManager>>,
   cursor_manager: Rc<RefCell<dyn CursorManager>>,
 }
@@ -197,7 +197,7 @@ impl LayersEventHandler {
     unsafe {
       if (*layer_surface).output.is_null() {
         // TODO: Actually find the active output
-        match self.output_manager.borrow().outputs().first() {
+        match self.output_manager.outputs().borrow().first() {
           Some(active_output) => {
             trace!(
               "LayersEventHandler::new_surface: Surface did not specify an output, picked: {0}",
@@ -214,8 +214,8 @@ impl LayersEventHandler {
       } else {
         let output = self
           .output_manager
-          .borrow()
           .outputs()
+          .borrow()
           .clone()
           .into_iter()
           .find(|output| output.raw_ptr() == (*layer_surface).output);
@@ -277,15 +277,15 @@ impl LayersEventHandler {
   }
 }
 
-fn update_anchor_edges(output_manager: Rc<RefCell<dyn OutputManager>>, window: &Window) {
+fn update_anchor_edges(output_manager: Rc<dyn OutputManager>, window: &Window) {
   if let Surface::Layer(surface) = window.surface() {
     let attached_edges = surface.client_pending().attached_edges();
     let margins = unsafe { (*surface.client_pending().0).margin };
 
     let configured = unsafe { (*surface.0).configured };
     let output = output_manager
-      .borrow()
       .outputs()
+      .borrow()
       .clone()
       .into_iter()
       .find(|output| output.raw_ptr() == unsafe { (*surface.0).output });
@@ -361,7 +361,7 @@ pub(crate) struct LayerShellManager {
 impl LayerShellManager {
   pub(crate) fn init(
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-    output_manager: Rc<RefCell<dyn OutputManager>>,
+    output_manager: Rc<dyn OutputManager>,
     window_manager: Rc<RefCell<WindowManager>>,
     cursor_manager: Rc<RefCell<dyn CursorManager>>,
     display: *mut wl_display,

@@ -221,7 +221,7 @@ mod tests {
 
     let mut event_handler = WindowEventHandler {
       wm_policy_manager,
-      output_manager: Rc::new(RefCell::new(MockOutputManager::default())),
+      output_manager: Rc::new(MockOutputManager::default()),
       window_manager: window_manager.clone(),
       cursor_manager: cursor_manager.clone(),
       window: Rc::downgrade(&window),

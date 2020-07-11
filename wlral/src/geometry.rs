@@ -267,6 +267,10 @@ impl Displacement {
   pub const ZERO: Displacement = Displacement { dx: 0, dy: 0 };
 }
 
+impl FDisplacement {
+  pub const ZERO: FDisplacement = FDisplacement { dx: 0.0, dy: 0.0 };
+}
+
 impl From<Displacement> for FDisplacement {
   fn from(point: Displacement) -> Self {
     FDisplacement {
