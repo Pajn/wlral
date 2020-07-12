@@ -69,6 +69,8 @@ impl Compositor {
       // to dig your fingers in and play with their behavior if you want.
       let compositor = wlr_compositor_create(display, renderer);
       wlr_data_device_manager_create(display);
+      wlr_gamma_control_manager_v1_create(display);
+      wlr_gtk_primary_selection_device_manager_create(display);
 
       // Configures a seat, which is a single "seat" at which a user sits and
       // operates the computer. This conceptually includes up to one keyboard,
@@ -129,6 +131,11 @@ impl Compositor {
       event_filter_manager
         .borrow_mut()
         .add_event_filter(Box::new(VtSwitchEventFilter::new(backend)));
+
+      wlr_export_dmabuf_manager_v1_create(display);
+      wlr_screencopy_manager_v1_create(display);
+      wlr_data_control_manager_v1_create(display);
+      wlr_primary_selection_v1_device_manager_create(display);
 
       // Add a Unix socket to the Wayland display.
       let socket = ffi_dispatch!(WAYLAND_SERVER_HANDLE, wl_display_add_socket_auto, display);
