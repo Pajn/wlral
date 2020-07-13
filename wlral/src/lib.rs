@@ -4,6 +4,7 @@ pub(crate) use wlroots_sys::libc;
 pub mod macros;
 
 pub mod compositor;
+pub mod config;
 pub mod event;
 pub mod geometry;
 pub mod input;

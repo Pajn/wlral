@@ -7,7 +7,7 @@ use crate::shell::layer::*;
 use crate::shell::xdg::*;
 use crate::shell::xwayland::*;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
-use crate::window_manager::WindowManager;
+use crate::{config::ConfigManager, window_manager::WindowManager};
 use log::debug;
 use std::cell::RefCell;
 use std::env;
@@ -18,6 +18,8 @@ use wlroots_sys::*;
 
 #[allow(unused)]
 pub struct Compositor {
+  config_manager: Rc<ConfigManager>,
+
   display: *mut wl_display,
   backend: *mut wlr_backend,
   renderer: *mut wlr_renderer,
@@ -42,6 +44,7 @@ pub struct Compositor {
 impl Compositor {
   pub fn init() -> Compositor {
     let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
+    let config_manager = Rc::new(ConfigManager::new());
 
     unsafe {
       // The Wayland display is managed by libwayland. It handles accepting
@@ -102,8 +105,11 @@ impl Compositor {
         event_filter_manager.clone(),
         output_layout,
       );
-      let keyboard_manager =
-        KeyboardManager::init(seat_manager.clone(), event_filter_manager.clone());
+      let keyboard_manager = KeyboardManager::init(
+        config_manager.clone(),
+        seat_manager.clone(),
+        event_filter_manager.clone(),
+      );
 
       let layer_shell_manager = LayerShellManager::init(
         wm_policy_manager.clone(),
@@ -152,6 +158,8 @@ impl Compositor {
       debug!("Compositor::init");
 
       Compositor {
+        config_manager,
+
         display,
         backend,
         renderer,
@@ -173,6 +181,10 @@ impl Compositor {
         event_filter_manager,
       }
     }
+  }
+
+  pub fn config_manager(&self) -> Rc<ConfigManager> {
+    self.config_manager.clone()
   }
 
   pub fn output_manager(&self) -> Rc<dyn OutputManager> {
