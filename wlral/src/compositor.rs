@@ -1,18 +1,24 @@
-use crate::input::cursor::*;
-use crate::input::event_filter::*;
-use crate::input::keyboard::*;
-use crate::input::seat::*;
-use crate::output_manager::{OutputManager, OutputManagerImpl};
-use crate::shell::layer::*;
-use crate::shell::xdg::*;
-use crate::shell::xwayland::*;
-use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
-use crate::{config::ConfigManager, window_manager::WindowManager};
-use log::debug;
-use std::cell::RefCell;
-use std::env;
-use std::ffi::{CStr, CString};
-use std::rc::Rc;
+use crate::{
+  config::ConfigManager,
+  input::cursor::*,
+  input::event_filter::*,
+  input::keyboard::*,
+  input::seat::*,
+  output_management_protocol::OutputManagementProtocol,
+  output_manager::{OutputManager, OutputManagerImpl},
+  shell::layer::*,
+  shell::xdg::*,
+  shell::xwayland::*,
+  window_management_policy::{WindowManagementPolicy, WmPolicyManager},
+  window_manager::WindowManager,
+};
+use log::{debug, error};
+use std::{
+  cell::RefCell,
+  env,
+  ffi::{CStr, CString},
+  rc::Rc,
+};
 use wayland_sys::server::*;
 use wlroots_sys::*;
 
@@ -27,6 +33,7 @@ pub struct Compositor {
 
   output_layout: *mut wlr_output_layout,
   output_manager: Rc<OutputManagerImpl>,
+  output_management_protocol: RefCell<Option<Rc<OutputManagementProtocol>>>,
 
   window_manager: Rc<RefCell<WindowManager>>,
   layer_shell_manager: LayerShellManager,
@@ -167,6 +174,7 @@ impl Compositor {
 
         output_layout,
         output_manager,
+        output_management_protocol: RefCell::new(None),
 
         window_manager,
         layer_shell_manager,
@@ -197,6 +205,28 @@ impl Compositor {
 
   pub fn cursor_manager(&self) -> Rc<CursorManager> {
     self.cursor_manager.clone()
+  }
+
+  pub fn output_management_protocol(&self) -> Option<Rc<OutputManagementProtocol>> {
+    self.output_management_protocol.borrow().clone()
+  }
+
+  pub fn enable_output_management_protocol(
+    &self,
+    pending_test_timeout_ms: u32,
+  ) -> Result<Rc<OutputManagementProtocol>, ()> {
+    if self.output_management_protocol.borrow().is_some() {
+      error!("Compositor::enable_output_management_protocol: output management protocol is already enabled");
+      return Err(());
+    }
+    let protocol =
+      OutputManagementProtocol::init(self.output_manager.clone(), pending_test_timeout_ms);
+    self
+      .output_management_protocol
+      .borrow_mut()
+      .replace(protocol.clone());
+
+    Ok(protocol)
   }
 
   pub fn add_event_filter(&mut self, filter: Box<dyn EventFilter>) {

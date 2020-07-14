@@ -1,17 +1,41 @@
 #![macro_use]
 
-// TODO: Is this really not UB ?
+/// Gets the offset of a field. Used by container_of!
 macro_rules! offset_of(
-    ($ty:ty, $field:ident) => {
-        &(*(0 as *const $ty)).$field as *const _ as usize
-    }
+  ($ty:ty, $field:ident) => {
+    &(*(0 as *const $ty)).$field as *const _ as usize
+  }
 );
 
+/// Gets the parent struct from a pointer.
+/// VERY unsafe. The parent struct _must_ be repr(C), and the
+/// type passed to this macro _must_ match the type of the parent.
 macro_rules! container_of(
-    ($ptr: expr, $container: ty, $field: ident) => {
-        ($ptr as *mut u8).offset(-(offset_of!($container, $field) as isize)) as *mut $container
-    }
+  ($ptr: expr, $container: ty, $field: ident) => {
+    ($ptr as *mut u8).offset(-(offset_of!($container, $field) as isize)) as *mut $container
+  }
 );
+
+/// Iterates over a wl_list.
+///
+/// # Safety
+/// It is not safe to delete an element while iterating over the list,
+/// so don't do it!
+macro_rules! wl_list_for_each {
+  ($ptr: expr, $field: ident, ($pos: ident : $container: ty) => $body: block) => {
+    let mut $pos: *mut $container;
+    $pos = container_of!($ptr.next, $container, $field);
+    loop {
+      if &(*$pos).$field as *const _ == &$ptr as *const _ {
+        break;
+      }
+      {
+        $body
+      }
+      $pos = container_of!((*$pos).$field.next, $container, $field);
+    }
+  };
+}
 
 /// Defines a new struct that contains a variable number of listeners that
 /// will trigger unsafe user-defined callbacks.

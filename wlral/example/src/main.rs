@@ -6,6 +6,7 @@ use wlral::geometry::{Displacement, Rectangle};
 use wlral::input::event_filter::EventFilter;
 use wlral::input::events::*;
 use wlral::output::Output;
+use wlral::output_management_protocol::OutputManagementProtocol;
 use wlral::output_manager::OutputManager;
 use wlral::window::{Window, WindowEdge};
 use wlral::window_management_policy::*;
@@ -20,6 +21,7 @@ enum Gesture {
 struct FloatingWindowManager {
   output_manager: Rc<dyn OutputManager>,
   window_manager: Rc<RefCell<WindowManager>>,
+  output_management_protocol: Rc<OutputManagementProtocol>,
 
   gesture: Option<Gesture>,
   restore_size: BTreeMap<usize, Rectangle>,
@@ -212,6 +214,28 @@ impl EventFilter for FloatingWindowManager {
         window.ask_client_to_close();
       }
       true
+    } else if keysym == xkb::KEY_a
+      && event
+        .xkb_state()
+        .mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_DEPRESSED)
+      && self.output_management_protocol.has_pending_test()
+    {
+      self
+        .output_management_protocol
+        .apply_pending_test()
+        .expect("Could not apply pending test");
+      true
+    } else if keysym == xkb::KEY_c
+      && event
+        .xkb_state()
+        .mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_DEPRESSED)
+      && self.output_management_protocol.has_pending_test()
+    {
+      self
+        .output_management_protocol
+        .cancel_pending_test()
+        .expect("Could not cancel pending test");
+      true
     } else {
       false
     }
@@ -222,8 +246,12 @@ fn main() {
   env_logger::init();
 
   let compositor = Compositor::init();
+  let output_management_protocol = compositor
+    .enable_output_management_protocol(30_000)
+    .unwrap();
   let window_manager = FloatingWindowManager {
     output_manager: compositor.output_manager(),
+    output_management_protocol,
     window_manager: compositor.window_manager(),
 
     gesture: None,

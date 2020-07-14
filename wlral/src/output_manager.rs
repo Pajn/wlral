@@ -17,16 +17,6 @@ use wlroots_sys::*;
 #[cfg(test)]
 use mockall::*;
 
-wayland_listener!(
-  pub OutputManagerEventManager,
-  Rc<OutputManagerImpl>,
-  [
-    new_output => new_output_func: |this: &mut OutputManagerEventManager, data: *mut libc::c_void,| unsafe {
-      new_output(this.data.clone(), data as *mut wlr_output)
-    };
-  ]
-);
-
 fn new_output(manager: Rc<OutputManagerImpl>, output: *mut wlr_output) {
   let wm_policy_manager = manager.wm_policy_manager.clone();
   let window_manager = manager.window_manager.clone();
@@ -46,10 +36,10 @@ fn new_output(manager: Rc<OutputManagerImpl>, output: *mut wlr_output) {
   #[cfg(not(test))]
   {
     use std::ffi::CStr;
-    let description: &CStr = unsafe { CStr::from_ptr((*output.raw_ptr()).description) };
+    let name: &CStr = unsafe { CStr::from_ptr((*output.raw_ptr()).name.as_ptr()) };
     debug!(
       "OutputManager::new_output: {0}",
-      description.to_str().unwrap_or("[description missing]")
+      name.to_str().unwrap_or("[name missing]")
     );
   }
 
@@ -105,30 +95,51 @@ fn new_output(manager: Rc<OutputManagerImpl>, output: *mut wlr_output) {
 
 #[cfg_attr(test, automock)]
 pub trait OutputManager {
+  fn raw_display(&self) -> *mut wl_display;
+  fn raw_output_layout(&self) -> *mut wlr_output_layout;
   fn outputs(&self) -> &RefCell<Vec<Rc<Output>>>;
+
   fn on_new_output(&self) -> &Event<Rc<Output>>;
+  /// This event is rasied by the output layout whenever any of its outputs
+  /// has its parameters changed, or if an output is added or removed.
+  fn on_output_layout_change(&self) -> &Event<()>;
 }
 
 pub struct OutputManagerImpl {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
   window_manager: Rc<RefCell<WindowManager>>,
+  display: *mut wl_display,
   renderer: *mut wlr_renderer,
   output_layout: *mut wlr_output_layout,
   #[allow(unused)]
   xdg_output_manager_v1: *mut wlr_xdg_output_manager_v1,
   outputs: RefCell<Vec<Rc<Output>>>,
+
   on_new_output: Event<Rc<Output>>,
+  on_output_layout_change: Event<()>,
 
   event_manager: RefCell<Option<Pin<Box<OutputManagerEventManager>>>>,
 }
 
 impl OutputManager for OutputManagerImpl {
+  fn raw_display(&self) -> *mut wl_display {
+    self.display
+  }
+
+  fn raw_output_layout(&self) -> *mut wlr_output_layout {
+    self.output_layout
+  }
+
   fn outputs(&self) -> &RefCell<Vec<Rc<Output>>> {
     &self.outputs
   }
 
   fn on_new_output(&self) -> &Event<Rc<Output>> {
     &self.on_new_output
+  }
+
+  fn on_output_layout_change(&self) -> &Event<()> {
+    &self.on_output_layout_change
   }
 }
 
@@ -148,11 +159,14 @@ impl OutputManagerImpl {
     let output_manager = Rc::new(OutputManagerImpl {
       wm_policy_manager,
       window_manager,
+      display,
       renderer,
       output_layout,
       xdg_output_manager_v1,
       outputs: RefCell::new(vec![]),
+
       on_new_output: Event::default(),
+      on_output_layout_change: Event::default(),
 
       event_manager: RefCell::new(None),
     });
@@ -161,6 +175,7 @@ impl OutputManagerImpl {
 
     unsafe {
       event_manager.new_output(&mut (*backend).events.new_output);
+      event_manager.output_layout_change(&mut (*output_layout).events.change);
     }
 
     *output_manager.event_manager.borrow_mut() = Some(event_manager);
@@ -168,6 +183,19 @@ impl OutputManagerImpl {
     output_manager
   }
 }
+
+wayland_listener!(
+  OutputManagerEventManager,
+  Rc<OutputManagerImpl>,
+  [
+    new_output => new_output_func: |this: &mut OutputManagerEventManager, data: *mut libc::c_void,| unsafe {
+      new_output(this.data.clone(), data as *mut wlr_output)
+    };
+    output_layout_change => output_layout_change_func: |this: &mut OutputManagerEventManager, _data: *mut libc::c_void,| unsafe {
+      this.data.on_output_layout_change.fire(());
+    };
+  ]
+);
 
 #[cfg(test)]
 mod tests {
@@ -184,11 +212,13 @@ mod tests {
     let output_manager = Rc::new(OutputManagerImpl {
       wm_policy_manager: wm_policy_manager.clone(),
       window_manager: window_manager.clone(),
+      display: ptr::null_mut(),
       renderer: ptr::null_mut(),
       output_layout: ptr::null_mut(),
       xdg_output_manager_v1: ptr::null_mut(),
       outputs: RefCell::new(vec![]),
       on_new_output: Event::default(),
+      on_output_layout_change: Event::default(),
 
       event_manager: RefCell::new(None),
     });
