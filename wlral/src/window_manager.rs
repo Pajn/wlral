@@ -1,6 +1,6 @@
 use crate::geometry::Point;
 use crate::surface::{Surface, SurfaceExt};
-use crate::{input::seat::SeatManager, window::Window};
+use crate::{event::EventOnce, input::seat::SeatManager, window::Window};
 use log::warn;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -216,6 +216,7 @@ impl WindowManagerExt for Rc<RefCell<WindowManager>> {
       mapped: RefCell::new(false),
       top_left: RefCell::new(Point::ZERO),
       pending_updates: RefCell::new(BTreeMap::new()),
+      on_destroy: EventOnce::default(),
       event_manager: RefCell::new(None),
     });
     // If the window can receive focus, add it to the back so that

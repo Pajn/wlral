@@ -1,10 +1,16 @@
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+use std::{cell::RefCell, collections::BTreeMap, fmt::Debug, rc::Rc};
 
 type EventListener<Data> = Box<dyn Fn(&Data)>;
 
 pub struct Event<Data> {
   next_id: RefCell<u64>,
   listeners: RefCell<BTreeMap<u64, Rc<EventListener<Data>>>>,
+}
+
+impl<T> Debug for Event<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "Event")
+  }
 }
 
 impl<T> Default for Event<T> {
@@ -38,6 +44,12 @@ type EventListenerOnce<Data> = Box<dyn FnOnce(&Data)>;
 
 pub struct EventOnce<Data> {
   listeners: RefCell<Vec<EventListenerOnce<Data>>>,
+}
+
+impl<T> Debug for EventOnce<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "EventOnce")
+  }
 }
 
 impl<T> Default for EventOnce<T> {

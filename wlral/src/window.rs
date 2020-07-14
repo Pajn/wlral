@@ -3,7 +3,10 @@ use crate::input::cursor::CursorManager;
 use crate::output_manager::OutputManager;
 use crate::surface::{Surface, SurfaceEventManager, SurfaceExt};
 use crate::window_management_policy::*;
-use crate::window_manager::{WindowLayer, WindowManager};
+use crate::{
+  event::EventOnce,
+  window_manager::{WindowLayer, WindowManager},
+};
 use bitflags::bitflags;
 use log::debug;
 use std::cell::RefCell;
@@ -38,6 +41,8 @@ pub struct Window {
 
   pub(crate) pending_updates: RefCell<BTreeMap<u32, PendingUpdate>>,
 
+  pub(crate) on_destroy: EventOnce<()>,
+
   pub(crate) event_manager: RefCell<Option<SurfaceEventManager>>,
 }
 
@@ -62,6 +67,10 @@ impl Window {
 
   pub fn wlr_surface(&self) -> *mut wlr_surface {
     self.surface.wlr_surface()
+  }
+
+  pub fn on_destroy(&self) -> &EventOnce<()> {
+    &self.on_destroy
   }
 
   fn position_displacement(&self) -> Displacement {
@@ -226,6 +235,7 @@ impl WindowEventHandler {
   pub(crate) fn destroy(&mut self) {
     debug!("WindowEventHandler::destroy");
     if let Some(window) = self.window.upgrade() {
+      window.on_destroy.fire(());
       self
         .wm_policy_manager
         .borrow_mut()

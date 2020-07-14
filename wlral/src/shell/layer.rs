@@ -273,6 +273,18 @@ impl LayersEventHandler {
 
     update_anchor_edges(self.output_manager.clone(), &window);
 
+    let output_manager = &self.output_manager;
+    let subscription_id = self.output_manager.on_output_layout_change().subscribe(
+      listener!(output_manager, window => move || {
+        update_anchor_edges(output_manager.clone(), &window);
+      }),
+    );
+    window
+      .on_destroy()
+      .then(listener!(output_manager => move || {
+        output_manager.on_output_layout_change().unsubscribe(subscription_id);
+      }));
+
     self
       .wm_policy_manager
       .borrow_mut()

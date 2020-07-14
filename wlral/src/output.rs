@@ -118,9 +118,9 @@ impl Output {
     model.to_string_lossy()
   }
 
-  pub(crate) fn render_window(&self, frame_time: &timespec, surface: Rc<Window>) {
+  pub(crate) fn render_window(&self, frame_time: &timespec, window: Rc<Window>) {
     unsafe {
-      let wlr_surface = &mut *surface.wlr_surface();
+      let wlr_surface = &mut *window.wlr_surface();
 
       // We first obtain a wlr_texture, which is a GPU resource. wlroots
       // automatically handles negotiating these with the client. The underlying
@@ -136,7 +136,7 @@ impl Output {
       // one next to the other, both 1080p, a view on the rightmost display might
       // have layout coordinates of 2000,100. We need to translate that to
       // output-local coordinates, or (2000 - 1920).
-      let buffer_extents = surface.buffer_extents();
+      let buffer_extents = window.buffer_extents();
 
       let top_left = buffer_extents.top_left() - self.top_left().as_displacement()
         + Displacement {
