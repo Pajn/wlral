@@ -60,6 +60,10 @@ fn main() {
       [
         format!("-DWLR_HAS_LIBCAP={}", cfg!(feature = "libcap") as u8),
         format!("-DWLR_HAS_SYSTEMD={}", cfg!(feature = "systemd") as u8),
+        format!(
+          "-DWLR_HAS_EGLMESAEXT_H={}",
+          cfg!(feature = "eglmesaext_h") as u8
+        ),
         format!("-DWLR_HAS_ELOGIND={}", cfg!(feature = "elogind") as u8),
         format!(
           "-DWLR_HAS_X11_BACKEND={}",

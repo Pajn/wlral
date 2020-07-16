@@ -19,9 +19,10 @@ wayland-scanner = "0.24.0"
 pkg-config = "0.3.17"
 
 [features]
-default = ["libcap", "systemd", "elogind", "xwayland", "x11_backend"]
+default = ["libcap", "systemd", "eglmesaext_h", "elogind", "xwayland", "x11_backend"]
 libcap = []
 systemd = []
+eglmesaext_h = []
 elogind = []
 x11_backend = []
 xwayland = []

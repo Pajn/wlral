@@ -302,7 +302,7 @@ impl XwaylandManager {
     let xwayland = unsafe { &mut *wlr_xwayland_create(display, compositor, true) };
 
     let socket_name = unsafe {
-      CStr::from_ptr(xwayland.display_name.as_ptr())
+      CStr::from_ptr(xwayland.display_name)
         .to_string_lossy()
         .into_owned()
     };
