@@ -1,8 +1,9 @@
 use crate::{event::Event, input::keyboard::KeyboardConfig};
 use log::debug;
+use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, rc::Rc};
 
-#[derive(Default, Debug, Eq, PartialEq, Clone)]
+#[derive(Default, Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Config {
   pub keyboard: KeyboardConfig,
 }
@@ -24,9 +25,9 @@ impl ConfigManager {
     self.config.borrow().clone()
   }
 
-  pub fn update_config<F>(&self, mut updater: F)
+  pub fn update_config<F>(&self, updater: F)
   where
-    F: FnMut(&mut Config),
+    F: FnOnce(&mut Config),
   {
     let mut config = self.config.borrow().clone();
     updater(Rc::make_mut(&mut config));

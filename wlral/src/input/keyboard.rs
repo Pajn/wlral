@@ -3,6 +3,7 @@ use crate::input::event_filter::{EventFilter, EventFilterManager};
 use crate::input::events::{InputEvent, KeyboardEvent};
 use crate::{config::ConfigManager, input::seat::SeatManager};
 use log::debug;
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::ops::Deref;
 use std::pin::Pin;
@@ -12,7 +13,7 @@ use xkbcommon::xkb;
 #[cfg(not(test))]
 use xkbcommon::xkb::ffi::xkb_state_ref;
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub struct KeyboardConfig {
   pub xkb_rules: String,
   pub xkb_model: String,
@@ -42,7 +43,7 @@ pub struct Keyboard {
   event_filter_manager: Rc<RefCell<EventFilterManager>>,
   device: Rc<Device>,
   keyboard: *mut wlr_keyboard,
-  xkb_state: xkb::State,
+  xkb_state: RefCell<xkb::State>,
 
   event_manager: RefCell<Option<Pin<Box<KeyboardEventManager>>>>,
 }
@@ -70,7 +71,9 @@ impl Keyboard {
       event_filter_manager,
       device: device.clone(),
       keyboard: keyboard_ptr,
-      xkb_state: unsafe { xkb::State::from_raw_ptr(xkb_state_ref((*keyboard_ptr).xkb_state)) },
+      xkb_state: RefCell::new(unsafe {
+        xkb::State::from_raw_ptr(xkb_state_ref((*keyboard_ptr).xkb_state))
+      }),
       event_manager: RefCell::new(None),
     });
 
@@ -79,6 +82,9 @@ impl Keyboard {
         .on_config_changed()
         .subscribe(listener!(keyboard => move |config| {
           set_keymap_from_config(keyboard.raw_ptr(), &config.keyboard);
+          *keyboard.xkb_state.borrow_mut() = unsafe {
+            xkb::State::from_raw_ptr(xkb_state_ref((*keyboard_ptr).xkb_state))
+          };
         }));
 
     device.on_destroy.then(listener!(config_manager => move || {
@@ -103,8 +109,8 @@ impl Keyboard {
     self.device.clone()
   }
 
-  pub fn xkb_state(&self) -> &xkb::State {
-    &self.xkb_state
+  pub fn xkb_state(&self) -> xkb::State {
+    self.xkb_state.borrow().clone()
   }
 }
 
