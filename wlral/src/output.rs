@@ -6,12 +6,13 @@ use std::cell::RefCell;
 use std::pin::Pin;
 use std::ptr;
 use std::rc::{Rc, Weak};
-use std::{borrow::Cow, ffi::CStr, time::Instant};
+use std::{borrow::Cow, ffi::CStr, fmt::Debug, time::Instant};
 use wlroots_sys::*;
 
+#[derive(Debug)]
 pub struct Output {
   pub(crate) wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-  pub(crate) window_manager: Rc<RefCell<WindowManager>>,
+  pub(crate) window_manager: Rc<WindowManager>,
 
   pub(crate) renderer: *mut wlr_renderer,
   pub(crate) output_layout: *mut wlr_output_layout,
@@ -222,7 +223,7 @@ impl OutputEventHandler for Rc<Output> {
         tv_nsec: since_creation.subsec_nanos() as i64,
       };
 
-      for window in self.window_manager.borrow().windows_to_render() {
+      for window in self.window_manager.windows_to_render() {
         self.render_window(&frame_time, window);
       }
 
@@ -304,13 +305,20 @@ wayland_listener!(
   ]
 );
 
+impl Debug for OutputEventManager {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "OutputEventManager")
+  }
+}
+
 pub(crate) trait OutputEvents {
   fn bind_events(&self);
 }
 
 impl OutputEvents for Rc<Output> {
   fn bind_events(&self) {
-    let mut event_manager = OutputEventManager::new(Rc::downgrade(self));
+    let mut event_manager: Pin<Box<OutputEventManager>> =
+      OutputEventManager::new(Rc::downgrade(self));
 
     unsafe {
       event_manager.frame(&mut (*self.output).events.frame);

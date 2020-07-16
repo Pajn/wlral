@@ -6,6 +6,7 @@ use crate::window::*;
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::window_manager::{WindowLayer, WindowManager, WindowManagerExt};
 use log::{debug, info};
+use ptr::NonNull;
 use std::cell::RefCell;
 use std::env;
 use std::ffi::CStr;
@@ -133,22 +134,26 @@ impl SurfaceExt for XwaylandSurface {
     CONFIGURE_SERIAL
   }
 
+  fn is_toplevel(&self) -> bool {
+    // TODO: Is this true?
+    true
+  }
   fn app_id(&self) -> Option<String> {
     unsafe {
-      Some(
-        CStr::from_ptr((*self.0).class)
+      NonNull::new((*self.0).class).map(|class| {
+        CStr::from_ptr(class.as_ptr())
           .to_string_lossy()
-          .into_owned(),
-      )
+          .into_owned()
+      })
     }
   }
   fn title(&self) -> Option<String> {
     unsafe {
-      Some(
-        CStr::from_ptr((*self.0).title)
+      NonNull::new((*self.0).title).map(|title| {
+        CStr::from_ptr(title.as_ptr())
           .to_string_lossy()
-          .into_owned(),
-      )
+          .into_owned()
+      })
     }
   }
 
@@ -160,7 +165,7 @@ impl SurfaceExt for XwaylandSurface {
 }
 
 wayland_listener!(
-  pub XwaylandSurfaceEventManager,
+  pub(crate) XwaylandSurfaceEventManager,
   WindowEventHandler,
   [
     map => map_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
@@ -205,13 +210,21 @@ wayland_listener!(
         output: None,
       });
     };
+    set_class => set_class_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.updated_app_id();
+    };
+    set_title => set_title_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.updated_title();
+    };
   ]
 );
 
 pub struct XwaylandEventHandler {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-  output_manager: Rc<dyn OutputManager>,
-  window_manager: Rc<RefCell<WindowManager>>,
+  output_manager: Rc<OutputManager>,
+  window_manager: Rc<WindowManager>,
   cursor_manager: Rc<CursorManager>,
 }
 impl XwaylandEventHandler {
@@ -228,6 +241,8 @@ impl XwaylandEventHandler {
       window_manager: self.window_manager.clone(),
       cursor_manager: self.cursor_manager.clone(),
       window: Rc::downgrade(&window),
+      foreign_toplevel_handle: None,
+      foreign_toplevel_event_manager: None,
     });
 
     unsafe {
@@ -241,6 +256,8 @@ impl XwaylandEventHandler {
       event_manager.request_maximize(&mut xwayland_surface.events.request_maximize);
       event_manager.request_fullscreen(&mut xwayland_surface.events.request_fullscreen);
       // TODO: minimize?
+      event_manager.set_class(&mut xwayland_surface.events.set_class);
+      event_manager.set_title(&mut xwayland_surface.events.set_title);
     }
 
     *window.event_manager.borrow_mut() = Some(SurfaceEventManager::Xwayland(event_manager));
@@ -253,7 +270,7 @@ impl XwaylandEventHandler {
 }
 
 wayland_listener!(
-  pub XwaylandEventManager,
+  XwaylandEventManager,
   Rc<RefCell<XwaylandEventHandler>>,
   [
      new_surface => new_surface_func: |this: &mut XwaylandEventManager, data: *mut libc::c_void,| unsafe {
@@ -274,8 +291,8 @@ pub(crate) struct XwaylandManager {
 impl XwaylandManager {
   pub(crate) fn init(
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-    output_manager: Rc<dyn OutputManager>,
-    window_manager: Rc<RefCell<WindowManager>>,
+    output_manager: Rc<OutputManager>,
+    window_manager: Rc<WindowManager>,
     cursor_manager: Rc<CursorManager>,
     display: *mut wl_display,
     compositor: *mut wlr_compositor,

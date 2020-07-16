@@ -345,6 +345,12 @@ impl CursorEvent for AbsoluteMotionEvent {
   }
 }
 
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+pub enum KeyState {
+  Released,
+  Pressed,
+}
+
 pub struct KeyboardEvent<'a> {
   keyboard: &'a Keyboard,
   event: *const wlr_event_keyboard_key,
@@ -371,8 +377,15 @@ impl<'a> KeyboardEvent<'a> {
     self.keyboard.xkb_state()
   }
 
-  pub fn state(&self) -> xkb::StateComponent {
+  pub fn raw_state(&self) -> wlr_key_state {
     unsafe { (*self.event).state }
+  }
+  pub fn state(&self) -> KeyState {
+    if self.raw_state() == wlr_key_state_WLR_KEY_PRESSED {
+      KeyState::Pressed
+    } else {
+      KeyState::Released
+    }
   }
 
   /// Get the single keysym obtained from pressing a particular key in

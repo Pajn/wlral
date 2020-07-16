@@ -83,7 +83,7 @@ impl PartialEq for Device {
 }
 
 wayland_listener!(
-  pub DeviceEventManager,
+  DeviceEventManager,
   Weak<Device>,
   [
     destroy => destroy_func: |this: &mut DeviceEventManager, _data: *mut libc::c_void,| unsafe {

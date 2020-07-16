@@ -1,10 +1,15 @@
 use crate::geometry::Point;
 use crate::surface::{Surface, SurfaceExt};
-use crate::{event::EventOnce, input::seat::SeatManager, window::Window};
+use crate::{
+  event::{Event, EventOnce},
+  input::seat::SeatManager,
+  output_manager::OutputManager,
+  window::Window,
+};
 use log::warn;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use wlroots_sys::*;
 
 #[derive(Debug, Copy, Clone)]
@@ -53,7 +58,9 @@ impl WindowLayers {
 
 pub struct WindowManager {
   seat_manager: Rc<SeatManager>,
-  layers: WindowLayers,
+  output_manager: RefCell<Weak<OutputManager>>,
+  layers: RefCell<WindowLayers>,
+  foreign_toplevel_manager: *mut wlr_foreign_toplevel_manager_v1,
 }
 
 impl std::fmt::Debug for WindowManager {
@@ -61,29 +68,34 @@ impl std::fmt::Debug for WindowManager {
     write!(
       fmt,
       "WindowManager {{windows: {0}}}",
-      self.layers.normal.len()
+      self.layers.borrow().normal.len()
     )
   }
 }
 
 impl WindowManager {
-  pub fn init(seat_manager: Rc<SeatManager>) -> WindowManager {
+  pub(crate) fn init(seat_manager: Rc<SeatManager>, display: *mut wl_display) -> WindowManager {
+    let foreign_toplevel_manager = unsafe { wlr_foreign_toplevel_manager_v1_create(display) };
     WindowManager {
       seat_manager,
-      layers: WindowLayers::default(),
+      output_manager: RefCell::new(Weak::<OutputManager>::new()),
+      layers: RefCell::new(WindowLayers::default()),
+      foreign_toplevel_manager,
     }
   }
 
+  pub fn raw_foreign_toplevel_manager(&self) -> *mut wlr_foreign_toplevel_manager_v1 {
+    self.foreign_toplevel_manager
+  }
+
   pub fn windows_to_render(&self) -> impl '_ + Iterator<Item = Rc<Window>> {
-    self
-      .layers
-      .all_windows()
-      .filter(|window| *window.mapped.borrow())
+    self.windows().filter(|window| *window.mapped.borrow())
   }
 
   pub fn window_at(&self, point: &Point) -> Option<Rc<Window>> {
     self
       .layers
+      .borrow()
       .all_windows()
       // Reverse as windows is from back to front
       .rev()
@@ -93,20 +105,25 @@ impl WindowManager {
   pub(crate) fn window_buffer_at(&self, point: &Point) -> Option<Rc<Window>> {
     self
       .layers
+      .borrow()
       .all_windows()
       // Reverse as windows is from back to front
       .rev()
       .find(|window| window.buffer_extents().contains(point))
   }
 
-  pub(crate) fn destroy_window(&mut self, destroyed_window: Rc<Window>) {
-    self.layers.update(destroyed_window.layer, |windows| {
-      windows.retain(|window| *window != destroyed_window)
-    });
+  pub(crate) fn destroy_window(&self, destroyed_window: Rc<Window>) {
+    self
+      .layers
+      .borrow_mut()
+      .update(destroyed_window.layer, |windows| {
+        windows.retain(|window| *window != destroyed_window)
+      });
   }
 
   pub fn windows(&self) -> impl '_ + DoubleEndedIterator<Item = Rc<Window>> {
-    self.layers.all_windows()
+    let windows = self.layers.borrow().all_windows().collect::<Vec<_>>();
+    windows.into_iter()
   }
 
   /// Returns the window that holds keyboard focus
@@ -118,6 +135,7 @@ impl WindowManager {
     };
     self
       .layers
+      .borrow()
       .all_windows()
       .find(|w| w.wlr_surface() == focused_surface)
   }
@@ -134,7 +152,7 @@ impl WindowManager {
   }
 
   /// Gives keyboard focus to the window
-  pub fn focus_window(&mut self, window: Rc<Window>) {
+  pub fn focus_window(&self, window: Rc<Window>) {
     if !window.can_receive_focus() {
       warn!("Window can not receive focus");
       return;
@@ -162,7 +180,7 @@ impl WindowManager {
       }
 
       // Move the view to the front
-      self.layers.update(window.layer, |windows| {
+      self.layers.borrow_mut().update(window.layer, |windows| {
         windows.retain(|s| *s != window);
         windows.push(window.clone());
       });
@@ -204,18 +222,36 @@ impl WindowManager {
 }
 
 pub(crate) trait WindowManagerExt {
+  fn set_output_manager(&self, output_manager: Rc<OutputManager>);
   fn new_window(&self, layer: WindowLayer, surface: Surface) -> Rc<Window>;
 }
 
-impl WindowManagerExt for Rc<RefCell<WindowManager>> {
+impl WindowManagerExt for Rc<WindowManager> {
+  fn set_output_manager(&self, output_manager: Rc<OutputManager>) {
+    *self.output_manager.borrow_mut() = Rc::downgrade(&output_manager);
+    let window_manager = self.clone();
+    output_manager
+      .on_output_layout_change()
+      .subscribe(Box::new(move |_| {
+        for window in window_manager.layers.borrow().all_windows() {
+          window.update_outputs();
+        }
+      }));
+  }
+
   fn new_window(&self, layer: WindowLayer, surface: Surface) -> Rc<Window> {
     let window = Rc::new(Window {
+      output_manager: self.output_manager.borrow().upgrade().expect("window_manager should be initialized with and output_manager before windows can be created"),
       window_manager: self.clone(),
       layer,
       surface,
       mapped: RefCell::new(false),
       top_left: RefCell::new(Point::ZERO),
+      outputs: RefCell::new(vec![]),
+      minimize_targets: RefCell::new(vec![]),
       pending_updates: RefCell::new(BTreeMap::new()),
+      on_entered_output: Event::default(),
+      on_left_output: Event::default(),
       on_destroy: EventOnce::default(),
       event_manager: RefCell::new(None),
     });
@@ -223,11 +259,11 @@ impl WindowManagerExt for Rc<RefCell<WindowManager>> {
     // the window management policy can choose if it want to focus the
     // window
     if window.can_receive_focus() {
-      self.borrow_mut().layers.update(layer, |windows| {
+      self.layers.borrow_mut().update(layer, |windows| {
         windows.insert(0, window.clone());
       })
     } else {
-      self.borrow_mut().layers.update(layer, |windows| {
+      self.layers.borrow_mut().update(layer, |windows| {
         windows.push(window.clone());
       })
     }
@@ -239,7 +275,7 @@ impl WindowManagerExt for Rc<RefCell<WindowManager>> {
 mod tests {
   use super::*;
   use crate::input::{cursor::CursorManager, event_filter::EventFilterManager};
-  use crate::output_manager::MockOutputManager;
+  use crate::output_manager::OutputManager;
   use crate::window::WindowEventHandler;
   use crate::window_management_policy::WmPolicyManager;
   use std::ptr;
@@ -248,9 +284,9 @@ mod tests {
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
     let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
-    let output_manager = Rc::new(MockOutputManager::default());
     let seat_manager = SeatManager::mock(ptr::null_mut(), ptr::null_mut());
-    let window_manager = Rc::new(RefCell::new(WindowManager::init(seat_manager.clone())));
+    let window_manager = Rc::new(WindowManager::init(seat_manager.clone(), ptr::null_mut()));
+    let output_manager = OutputManager::mock(wm_policy_manager.clone(), window_manager.clone());
     let cursor_manager = CursorManager::mock(
       output_manager.clone(),
       window_manager.clone(),
@@ -259,6 +295,8 @@ mod tests {
       ptr::null_mut(),
       ptr::null_mut(),
     );
+
+    window_manager.set_output_manager(output_manager.clone());
     let window = window_manager.new_window(WindowLayer::Normal, Surface::Null);
 
     let mut event_handler = WindowEventHandler {
@@ -267,16 +305,26 @@ mod tests {
       window_manager: window_manager.clone(),
       cursor_manager: cursor_manager.clone(),
       window: Rc::downgrade(&window),
+      foreign_toplevel_handle: None,
+      foreign_toplevel_event_manager: None,
     };
 
     let weak_window = Rc::downgrade(&window);
     drop(window);
 
+    assert!(window_manager.windows().count() == 1);
     assert!(weak_window.upgrade().is_some());
 
     event_handler.destroy();
 
-    assert!(window_manager.borrow().windows().count() == 0);
+    assert!(window_manager.windows().count() == 0);
     assert!(weak_window.upgrade().is_none());
   }
+}
+
+#[cfg(test)]
+unsafe fn wlr_foreign_toplevel_manager_v1_create(
+  _display: *mut wl_display,
+) -> *mut wlr_foreign_toplevel_manager_v1 {
+  std::ptr::null_mut()
 }

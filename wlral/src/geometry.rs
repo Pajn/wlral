@@ -209,10 +209,14 @@ impl Rectangle {
   }
 
   pub fn overlaps(&self, rectangle: &Rectangle) -> bool {
-    let disjoint = self.left() <= rectangle.right()
-      || self.right() >= rectangle.left()
-      || self.top() <= rectangle.bottom()
-      || self.bottom() >= rectangle.top();
+    let disjoint = rectangle.left() >= self.right()
+      || rectangle.right() <= self.left()
+      || rectangle.top() >= self.bottom()
+      || rectangle.bottom() <= self.top()
+      || self.width() == 0
+      || self.height() == 0
+      || rectangle.width() == 0
+      || rectangle.height() == 0;
 
     !disjoint
   }
@@ -395,5 +399,71 @@ impl TransformMatrix {
 
   pub fn as_mut_ptr(&mut self) -> *mut f32 {
     self.0.as_mut_ptr()
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn test_rectangle_overlaps() {
+    let rect1 = Rectangle {
+      top_left: Point { x: 0, y: 0 },
+      size: Size {
+        width: 1,
+        height: 1,
+      },
+    };
+    let rect2 = Rectangle {
+      top_left: Point { x: 1, y: 1 },
+      size: Size {
+        width: 1,
+        height: 1,
+      },
+    };
+    let rect3 = Rectangle {
+      top_left: Point { x: 0, y: 0 },
+      size: Size {
+        width: 2,
+        height: 2,
+      },
+    };
+    let rect4 = Rectangle {
+      top_left: Point { x: -1, y: -1 },
+      size: Size {
+        width: 2,
+        height: 2,
+      },
+    };
+    let rect_empty = Rectangle {
+      top_left: Point { x: 0, y: 0 },
+      size: Size {
+        width: 0,
+        height: 0,
+      },
+    };
+
+    assert!(!rect_empty.overlaps(&rect_empty));
+    assert!(!rect_empty.overlaps(&rect1));
+    assert!(!rect_empty.overlaps(&rect4));
+
+    assert!(!rect1.overlaps(&rect2));
+    assert!(!rect2.overlaps(&rect1));
+    assert!(!rect4.overlaps(&rect2));
+    assert!(!rect2.overlaps(&rect4));
+
+    assert!(rect1.overlaps(&rect1));
+    assert!(rect4.overlaps(&rect4));
+
+    assert!(rect3.overlaps(&rect1));
+    assert!(rect1.overlaps(&rect3));
+    assert!(rect3.overlaps(&rect2));
+    assert!(rect2.overlaps(&rect3));
+
+    assert!(rect4.overlaps(&rect1));
+    assert!(rect1.overlaps(&rect4));
+    assert!(rect4.overlaps(&rect3));
+    assert!(rect3.overlaps(&rect3));
   }
 }

@@ -5,12 +5,12 @@ use crate::{
   input::keyboard::*,
   input::seat::*,
   output_management_protocol::OutputManagementProtocol,
-  output_manager::{OutputManager, OutputManagerImpl},
+  output_manager::OutputManager,
   shell::layer::*,
   shell::xdg::*,
   shell::xwayland::*,
   window_management_policy::{WindowManagementPolicy, WmPolicyManager},
-  window_manager::WindowManager,
+  window_manager::{WindowManager, WindowManagerExt},
 };
 use log::{debug, error};
 use std::{
@@ -32,10 +32,10 @@ pub struct Compositor {
   compositor: *mut wlr_compositor,
 
   output_layout: *mut wlr_output_layout,
-  output_manager: Rc<OutputManagerImpl>,
+  output_manager: Rc<OutputManager>,
   output_management_protocol: RefCell<Option<Rc<OutputManagementProtocol>>>,
 
-  window_manager: Rc<RefCell<WindowManager>>,
+  window_manager: Rc<WindowManager>,
   layer_shell_manager: LayerShellManager,
   xdg_manager: XdgManager,
   xwayland_manager: XwaylandManager,
@@ -89,13 +89,13 @@ impl Compositor {
       let seat = wlr_seat_create(display, CString::new("seat0").unwrap().as_ptr());
 
       let seat_manager = SeatManager::init(display, backend, seat);
-      let window_manager = Rc::new(RefCell::new(WindowManager::init(seat_manager.clone())));
+      let window_manager = Rc::new(WindowManager::init(seat_manager.clone(), display));
 
       // Creates an output layout, which a wlroots utility for working with an
       // arrangement of screens in a physical layout.
       let output_layout = wlr_output_layout_create();
 
-      let output_manager = OutputManagerImpl::init(
+      let output_manager = OutputManager::init(
         wm_policy_manager.clone(),
         window_manager.clone(),
         display,
@@ -103,6 +103,7 @@ impl Compositor {
         renderer,
         output_layout,
       );
+      window_manager.set_output_manager(output_manager.clone());
 
       let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
       let cursor_manager = CursorManager::init(
@@ -195,11 +196,11 @@ impl Compositor {
     self.config_manager.clone()
   }
 
-  pub fn output_manager(&self) -> Rc<dyn OutputManager> {
+  pub fn output_manager(&self) -> Rc<OutputManager> {
     self.output_manager.clone()
   }
 
-  pub fn window_manager(&self) -> Rc<RefCell<WindowManager>> {
+  pub fn window_manager(&self) -> Rc<WindowManager> {
     self.window_manager.clone()
   }
 

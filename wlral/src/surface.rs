@@ -57,6 +57,7 @@ pub(crate) trait SurfaceExt {
   /// Returns the associated configure serial
   fn set_resizing(&self, resizing: bool) -> u32;
 
+  fn is_toplevel(&self) -> bool;
   fn app_id(&self) -> Option<String>;
   fn title(&self) -> Option<String>;
 
@@ -227,6 +228,15 @@ impl SurfaceExt for Surface {
     }
   }
 
+  fn is_toplevel(&self) -> bool {
+    match self {
+      Layer(surface) => surface.is_toplevel(),
+      Xdg(surface) => surface.is_toplevel(),
+      Xwayland(surface) => surface.is_toplevel(),
+      #[cfg(test)]
+      Null => false,
+    }
+  }
   fn app_id(&self) -> Option<String> {
     match self {
       Layer(surface) => surface.app_id(),
@@ -257,7 +267,7 @@ impl SurfaceExt for Surface {
   }
 }
 
-pub enum SurfaceEventManager {
+pub(crate) enum SurfaceEventManager {
   Layer(Pin<Box<LayerSurfaceEventManager>>),
   Xdg(Pin<Box<XdgSurfaceEventManager>>),
   Xwayland(Pin<Box<XwaylandSurfaceEventManager>>),

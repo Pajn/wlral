@@ -36,14 +36,14 @@ pub struct OutputManagementProtocol {
   on_output_management_test_started: Event<()>,
   on_output_management_test_timed_out: Event<()>,
 
-  output_manager: Rc<dyn OutputManager>,
+  output_manager: Rc<OutputManager>,
   output_manager_v1: *mut wlr_output_manager_v1,
   event_manager: RefCell<Option<Pin<Box<OututManagementProtocolEventManager>>>>,
 }
 
 impl OutputManagementProtocol {
   pub(crate) fn init(
-    output_manager: Rc<dyn OutputManager>,
+    output_manager: Rc<OutputManager>,
     pending_test_timeout_ms: u32,
   ) -> Rc<OutputManagementProtocol> {
     let output_manager_v1 = unsafe { wlr_output_manager_v1_create(output_manager.raw_display()) };
@@ -100,7 +100,7 @@ impl OutputManagementProtocol {
       return None;
     }
 
-    for output in self.output_manager.outputs().borrow().iter() {
+    for output in self.output_manager.outputs().iter() {
       let head = wlr_output_configuration_head_v1_create(config, output.raw_ptr());
       if head.is_null() {
         wlr_output_configuration_v1_destroy(config);

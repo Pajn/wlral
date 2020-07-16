@@ -7,17 +7,14 @@ use crate::{
 };
 #[cfg_attr(test, allow(unused))]
 use log::{debug, error};
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::pin::Pin;
 use std::rc::Rc;
-use std::time::Instant;
+use std::{fmt::Debug, time::Instant};
 use wayland_sys::server::wl_display;
 use wlroots_sys::*;
 
-#[cfg(test)]
-use mockall::*;
-
-fn new_output(manager: Rc<OutputManagerImpl>, output: *mut wlr_output) {
+fn new_output(manager: Rc<OutputManager>, output: *mut wlr_output) {
   let wm_policy_manager = manager.wm_policy_manager.clone();
   let window_manager = manager.window_manager.clone();
   let renderer = manager.renderer;
@@ -93,21 +90,9 @@ fn new_output(manager: Rc<OutputManagerImpl>, output: *mut wlr_output) {
     .advise_output_create(output);
 }
 
-#[cfg_attr(test, automock)]
-pub trait OutputManager {
-  fn raw_display(&self) -> *mut wl_display;
-  fn raw_output_layout(&self) -> *mut wlr_output_layout;
-  fn outputs(&self) -> &RefCell<Vec<Rc<Output>>>;
-
-  fn on_new_output(&self) -> &Event<Rc<Output>>;
-  /// This event is rasied by the output layout whenever any of its outputs
-  /// has its parameters changed, or if an output is added or removed.
-  fn on_output_layout_change(&self) -> &Event<()>;
-}
-
-pub struct OutputManagerImpl {
+pub struct OutputManager {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-  window_manager: Rc<RefCell<WindowManager>>,
+  window_manager: Rc<WindowManager>,
   display: *mut wl_display,
   renderer: *mut wlr_renderer,
   output_layout: *mut wlr_output_layout,
@@ -121,42 +106,54 @@ pub struct OutputManagerImpl {
   event_manager: RefCell<Option<Pin<Box<OutputManagerEventManager>>>>,
 }
 
-impl OutputManager for OutputManagerImpl {
-  fn raw_display(&self) -> *mut wl_display {
+impl Debug for OutputManager {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(
+      f,
+      "OutputManager {{outputs: {}}}",
+      self.outputs.borrow().len()
+    )
+  }
+}
+
+impl OutputManager {
+  pub fn raw_display(&self) -> *mut wl_display {
     self.display
   }
 
-  fn raw_output_layout(&self) -> *mut wlr_output_layout {
+  pub fn raw_output_layout(&self) -> *mut wlr_output_layout {
     self.output_layout
   }
 
-  fn outputs(&self) -> &RefCell<Vec<Rc<Output>>> {
-    &self.outputs
+  pub fn outputs(&self) -> Ref<Vec<Rc<Output>>> {
+    self.outputs.borrow()
   }
 
-  fn on_new_output(&self) -> &Event<Rc<Output>> {
+  pub fn on_new_output(&self) -> &Event<Rc<Output>> {
     &self.on_new_output
   }
 
-  fn on_output_layout_change(&self) -> &Event<()> {
+  /// This event is rasied by the output layout whenever any of its outputs
+  /// has its parameters changed, or if an output is added or removed.
+  pub fn on_output_layout_change(&self) -> &Event<()> {
     &self.on_output_layout_change
   }
 }
 
-impl OutputManagerImpl {
+impl OutputManager {
   pub(crate) fn init(
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-    window_manager: Rc<RefCell<WindowManager>>,
+    window_manager: Rc<WindowManager>,
     display: *mut wl_display,
     backend: *mut wlr_backend,
     renderer: *mut wlr_renderer,
     output_layout: *mut wlr_output_layout,
-  ) -> Rc<OutputManagerImpl> {
+  ) -> Rc<OutputManager> {
     debug!("OutputManager::init");
 
     let xdg_output_manager_v1 = unsafe { wlr_xdg_output_manager_v1_create(display, output_layout) };
 
-    let output_manager = Rc::new(OutputManagerImpl {
+    let output_manager = Rc::new(OutputManager {
       wm_policy_manager,
       window_manager,
       display,
@@ -182,11 +179,32 @@ impl OutputManagerImpl {
 
     output_manager
   }
+
+  #[cfg(test)]
+  pub(crate) fn mock(
+    wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+    window_manager: Rc<WindowManager>,
+  ) -> Rc<OutputManager> {
+    Rc::new(OutputManager {
+      wm_policy_manager,
+      window_manager,
+      display: std::ptr::null_mut(),
+      renderer: std::ptr::null_mut(),
+      output_layout: std::ptr::null_mut(),
+      xdg_output_manager_v1: std::ptr::null_mut(),
+      outputs: RefCell::new(vec![]),
+
+      on_new_output: Event::default(),
+      on_output_layout_change: Event::default(),
+
+      event_manager: RefCell::new(None),
+    })
+  }
 }
 
 wayland_listener!(
   OutputManagerEventManager,
-  Rc<OutputManagerImpl>,
+  Rc<OutputManager>,
   [
     new_output => new_output_func: |this: &mut OutputManagerEventManager, data: *mut libc::c_void,| unsafe {
       new_output(this.data.clone(), data as *mut wlr_output)
@@ -208,8 +226,8 @@ mod tests {
   fn it_drops_and_cleans_up_on_destroy() {
     let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
     let seat_manager = SeatManager::mock(ptr::null_mut(), ptr::null_mut());
-    let window_manager = Rc::new(RefCell::new(WindowManager::init(seat_manager)));
-    let output_manager = Rc::new(OutputManagerImpl {
+    let window_manager = Rc::new(WindowManager::init(seat_manager, ptr::null_mut()));
+    let output_manager = Rc::new(OutputManager {
       wm_policy_manager: wm_policy_manager.clone(),
       window_manager: window_manager.clone(),
       display: ptr::null_mut(),

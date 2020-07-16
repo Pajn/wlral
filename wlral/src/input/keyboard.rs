@@ -169,7 +169,7 @@ impl KeyboardEventHandler for Keyboard {
           self.seat_manager.raw_seat(),
           event.time_msec(),
           event.libinput_keycode(),
-          event.state(),
+          event.raw_state(),
         );
       }
     }
@@ -177,7 +177,7 @@ impl KeyboardEventHandler for Keyboard {
 }
 
 wayland_listener!(
-  pub KeyboardEventManager,
+  KeyboardEventManager,
   Weak<Keyboard>,
   [
     modifiers => modifiers_func: |this: &mut KeyboardEventManager, _data: *mut libc::c_void,| unsafe {

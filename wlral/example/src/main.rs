@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use wlral::compositor::Compositor;
@@ -19,8 +18,8 @@ enum Gesture {
 }
 
 struct FloatingWindowManager {
-  output_manager: Rc<dyn OutputManager>,
-  window_manager: Rc<RefCell<WindowManager>>,
+  output_manager: Rc<OutputManager>,
+  window_manager: Rc<WindowManager>,
   output_management_protocol: Rc<OutputManagementProtocol>,
 
   gesture: Option<Gesture>,
@@ -32,11 +31,10 @@ impl FloatingWindowManager {
     self
       .output_manager
       .outputs()
-      .borrow()
       .iter()
       .find(|output| output.extents().overlaps(&window.extents()))
       .cloned()
-      .or_else(|| self.output_manager.outputs().borrow().first().cloned())
+      .or_else(|| self.output_manager.outputs().first().cloned())
   }
 }
 
@@ -53,19 +51,20 @@ impl WindowManagementPolicy for FloatingWindowManager {
       }
 
       // Focus the new window
-      self
-        .window_manager
-        .borrow_mut()
-        .focus_window(window.clone());
+      self.window_manager.focus_window(window.clone());
     }
   }
 
+  fn handle_request_activate(&mut self, request: ActivateRequest) {
+    self.window_manager.focus_window(request.window);
+  }
+
+  fn handle_request_close(&mut self, request: CloseRequest) {
+    request.window.ask_client_to_close();
+  }
+
   fn handle_request_move(&mut self, request: MoveRequest) {
-    if !self
-      .window_manager
-      .borrow()
-      .window_has_focus(&request.window)
-    {
+    if !self.window_manager.window_has_focus(&request.window) {
       // Deny move requests from unfocused clients
       return;
     }
@@ -80,11 +79,7 @@ impl WindowManagementPolicy for FloatingWindowManager {
     self.gesture = Some(Gesture::Move(request))
   }
   fn handle_request_resize(&mut self, request: ResizeRequest) {
-    if !self
-      .window_manager
-      .borrow()
-      .window_has_focus(&request.window)
-    {
+    if !self.window_manager.window_has_focus(&request.window) {
       // Deny resize requests from unfocused clients
       return;
     }
@@ -205,12 +200,16 @@ impl EventFilter for FloatingWindowManager {
   fn handle_keyboard_event(&mut self, event: &KeyboardEvent) -> bool {
     let keysym = event.get_one_sym();
 
+    if event.state() != KeyState::Pressed {
+      return false;
+    }
+
     if keysym == xkb::KEY_Escape
       && event
         .xkb_state()
         .mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_DEPRESSED)
     {
-      if let Some(window) = self.window_manager.borrow().focused_window() {
+      if let Some(window) = self.window_manager.focused_window() {
         window.ask_client_to_close();
       }
       true
@@ -236,6 +235,32 @@ impl EventFilter for FloatingWindowManager {
         .cancel_pending_test()
         .expect("Could not cancel pending test");
       true
+    } else if keysym == xkb::KEY_d
+      && event
+        .xkb_state()
+        .mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_DEPRESSED)
+      && event
+        .xkb_state()
+        .mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_DEPRESSED)
+    {
+      println!("Windows:");
+      for window in self.window_manager.windows() {
+        println!("  {}:", window.title().unwrap_or("[no title]".to_string()));
+        println!(
+          "    app_id: {}",
+          window.app_id().unwrap_or("[no app_id]".to_string())
+        );
+        println!(
+          "    outputs: {}",
+          window
+            .outputs()
+            .iter()
+            .map(|o| o.name())
+            .collect::<Vec<_>>()
+            .join(", ")
+        );
+      }
+      true
     } else {
       false
     }
@@ -246,6 +271,9 @@ fn main() {
   env_logger::init();
 
   let compositor = Compositor::init();
+  compositor.config_manager().update_config(|config| {
+    config.keyboard.xkb_layout = "us".to_string();
+  });
   let output_management_protocol = compositor
     .enable_output_management_protocol(30_000)
     .unwrap();

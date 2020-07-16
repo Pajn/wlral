@@ -142,6 +142,9 @@ impl SurfaceExt for LayerSurface {
     0
   }
 
+  fn is_toplevel(&self) -> bool {
+    false
+  }
   fn app_id(&self) -> Option<String> {
     None
   }
@@ -157,7 +160,7 @@ impl SurfaceExt for LayerSurface {
 }
 
 wayland_listener!(
-  pub LayerSurfaceEventManager,
+  pub(crate) LayerSurfaceEventManager,
   WindowEventHandler,
   [
     map => map_func: |this: &mut LayerSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
@@ -188,8 +191,8 @@ wayland_listener!(
 
 pub struct LayersEventHandler {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-  output_manager: Rc<dyn OutputManager>,
-  window_manager: Rc<RefCell<WindowManager>>,
+  output_manager: Rc<OutputManager>,
+  window_manager: Rc<WindowManager>,
   cursor_manager: Rc<CursorManager>,
 }
 impl LayersEventHandler {
@@ -200,7 +203,7 @@ impl LayersEventHandler {
     unsafe {
       if (*layer_surface).output.is_null() {
         // TODO: Actually find the active output
-        match self.output_manager.outputs().borrow().first() {
+        match self.output_manager.outputs().first() {
           Some(active_output) => {
             trace!(
               "LayersEventHandler::new_surface: Surface did not specify an output, picked: {0}",
@@ -218,7 +221,6 @@ impl LayersEventHandler {
         let output = self
           .output_manager
           .outputs()
-          .borrow()
           .clone()
           .into_iter()
           .find(|output| output.raw_ptr() == (*layer_surface).output);
@@ -260,6 +262,8 @@ impl LayersEventHandler {
       window_manager: self.window_manager.clone(),
       cursor_manager: self.cursor_manager.clone(),
       window: Rc::downgrade(&window),
+      foreign_toplevel_handle: None,
+      foreign_toplevel_event_manager: None,
     });
 
     unsafe {
@@ -292,7 +296,7 @@ impl LayersEventHandler {
   }
 }
 
-fn update_anchor_edges(output_manager: Rc<dyn OutputManager>, window: &Window) {
+fn update_anchor_edges(output_manager: Rc<OutputManager>, window: &Window) {
   if let Surface::Layer(surface) = window.surface() {
     let attached_edges = surface.client_pending().attached_edges();
     let margins = unsafe { (*surface.client_pending().0).margin };
@@ -300,7 +304,6 @@ fn update_anchor_edges(output_manager: Rc<dyn OutputManager>, window: &Window) {
     let configured = unsafe { (*surface.0).configured };
     let output = output_manager
       .outputs()
-      .borrow()
       .clone()
       .into_iter()
       .find(|output| output.raw_ptr() == unsafe { (*surface.0).output });
@@ -355,7 +358,7 @@ fn update_anchor_edges(output_manager: Rc<dyn OutputManager>, window: &Window) {
 }
 
 wayland_listener!(
-  pub LayersEventManager,
+  LayersEventManager,
   Rc<RefCell<LayersEventHandler>>,
   [
      new_surface => new_surface_func: |this: &mut LayersEventManager, data: *mut libc::c_void,| unsafe {
@@ -376,8 +379,8 @@ pub(crate) struct LayerShellManager {
 impl LayerShellManager {
   pub(crate) fn init(
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-    output_manager: Rc<dyn OutputManager>,
-    window_manager: Rc<RefCell<WindowManager>>,
+    output_manager: Rc<OutputManager>,
+    window_manager: Rc<WindowManager>,
     cursor_manager: Rc<CursorManager>,
     display: *mut wl_display,
   ) -> LayerShellManager {

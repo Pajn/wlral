@@ -176,6 +176,12 @@ impl SurfaceExt for XdgSurface {
     }
   }
 
+  fn is_toplevel(&self) -> bool {
+    match self.get_type() {
+      Toplevel(_) => true,
+      _ => false,
+    }
+  }
   fn app_id(&self) -> Option<String> {
     match self.get_type() {
       Toplevel(toplevel) => unsafe {
@@ -215,7 +221,7 @@ impl SurfaceExt for XdgSurface {
 }
 
 wayland_listener!(
-  pub XdgSurfaceEventManager,
+  pub(crate) XdgSurfaceEventManager,
   WindowEventHandler,
   [
     map => map_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
@@ -229,6 +235,10 @@ wayland_listener!(
     destroy => destroy_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
       handler.destroy();
+    };
+    new_popup => new_popup_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut _handler = this.data;
+      debug!("XdgSurfaceEventManager::new_popup");
     };
     commit => commit_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
       let ref mut handler = this.data;
@@ -275,13 +285,21 @@ wayland_listener!(
       let ref mut handler = this.data;
       handler.request_minimize();
     };
+    set_app_id => set_app_id_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.updated_app_id();
+    };
+    set_title => set_title_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
+      let ref mut handler = this.data;
+      handler.updated_title();
+    };
   ]
 );
 
 pub struct XdgEventHandler {
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-  output_manager: Rc<dyn OutputManager>,
-  window_manager: Rc<RefCell<WindowManager>>,
+  output_manager: Rc<OutputManager>,
+  window_manager: Rc<WindowManager>,
   cursor_manager: Rc<CursorManager>,
 }
 impl XdgEventHandler {
@@ -293,7 +311,6 @@ impl XdgEventHandler {
         let wlr_surface = unsafe { (*popup).parent };
         self
           .window_manager
-          .borrow()
           .windows()
           .find(|window| window.wlr_surface() == wlr_surface)
           .map_or(WindowLayer::Normal, |window| window.layer)
@@ -311,12 +328,15 @@ impl XdgEventHandler {
       window_manager: self.window_manager.clone(),
       cursor_manager: self.cursor_manager.clone(),
       window: Rc::downgrade(&window),
+      foreign_toplevel_handle: None,
+      foreign_toplevel_event_manager: None,
     });
 
     unsafe {
       event_manager.map(&mut (*xdg_surface).events.map);
       event_manager.unmap(&mut (*xdg_surface).events.unmap);
       event_manager.destroy(&mut (*xdg_surface).events.destroy);
+      event_manager.new_popup(&mut (*xdg_surface).events.new_popup);
       event_manager.commit(&mut (*(*xdg_surface).surface).events.commit);
 
       match XdgSurface(xdg_surface).get_type() {
@@ -328,6 +348,8 @@ impl XdgEventHandler {
           event_manager.request_maximize(&mut toplevel.events.request_maximize);
           event_manager.request_fullscreen(&mut toplevel.events.request_fullscreen);
           event_manager.request_minimize(&mut toplevel.events.request_minimize);
+          event_manager.set_app_id(&mut toplevel.events.set_app_id);
+          event_manager.set_title(&mut toplevel.events.set_title);
         }
         _ => {}
       }
@@ -343,7 +365,7 @@ impl XdgEventHandler {
 }
 
 wayland_listener!(
-  pub XdgEventManager,
+  XdgEventManager,
   Rc<RefCell<XdgEventHandler>>,
   [
      new_surface => new_surface_func: |this: &mut XdgEventManager, data: *mut libc::c_void,| unsafe {
@@ -364,8 +386,8 @@ pub(crate) struct XdgManager {
 impl XdgManager {
   pub(crate) fn init(
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
-    output_manager: Rc<dyn OutputManager>,
-    window_manager: Rc<RefCell<WindowManager>>,
+    output_manager: Rc<OutputManager>,
+    window_manager: Rc<WindowManager>,
     cursor_manager: Rc<CursorManager>,
     display: *mut wl_display,
   ) -> XdgManager {

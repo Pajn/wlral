@@ -209,7 +209,7 @@ mod tests {
   use wlroots_sys::libc;
 
   wayland_listener!(
-    pub EventManager,
+    EventManager,
     u8,
     [
       map => map_func: |_this: &mut EventManager, _data: *mut libc::c_void,| unsafe {};

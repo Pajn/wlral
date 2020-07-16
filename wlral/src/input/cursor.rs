@@ -14,8 +14,8 @@ use std::rc::Rc;
 use wlroots_sys::*;
 
 pub struct CursorManager {
-  output_manager: Rc<dyn OutputManager>,
-  window_manager: Rc<RefCell<WindowManager>>,
+  output_manager: Rc<OutputManager>,
+  window_manager: Rc<WindowManager>,
   seat_manager: Rc<SeatManager>,
   event_filter_manager: Rc<RefCell<EventFilterManager>>,
   cursor: *mut wlr_cursor,
@@ -27,8 +27,8 @@ pub struct CursorManager {
 
 impl CursorManager {
   pub(crate) fn init(
-    output_manager: Rc<dyn OutputManager>,
-    window_manager: Rc<RefCell<WindowManager>>,
+    output_manager: Rc<OutputManager>,
+    window_manager: Rc<WindowManager>,
     seat_manager: Rc<SeatManager>,
     event_filter_manager: Rc<RefCell<EventFilterManager>>,
     output_layout: *mut wlr_output_layout,
@@ -115,8 +115,8 @@ impl CursorManager {
 
   #[cfg(test)]
   pub(crate) fn mock(
-    output_manager: Rc<dyn OutputManager>,
-    window_manager: Rc<RefCell<WindowManager>>,
+    output_manager: Rc<OutputManager>,
+    window_manager: Rc<WindowManager>,
     seat_manager: Rc<SeatManager>,
     event_filter_manager: Rc<RefCell<EventFilterManager>>,
     cursor: *mut wlr_cursor,
@@ -139,7 +139,7 @@ impl CursorManager {
     debug!("CursorManager::refresh_device_mappings");
     for pointer in self.pointers.borrow().iter() {
       if let Some(output_name) = pointer.output_name() {
-        for output in self.output_manager.outputs().borrow().iter() {
+        for output in self.output_manager.outputs().iter() {
           if output_name == output.name() {
             unsafe {
               wlr_cursor_map_input_to_output(self.cursor, pointer.raw_ptr(), output.raw_ptr());
@@ -157,10 +157,7 @@ impl CursorManager {
       wlr_cursor_warp(self.cursor, event.raw_device(), position.x(), position.y());
     }
 
-    let surface = self
-      .window_manager
-      .borrow()
-      .window_buffer_at(&position.into());
+    let surface = self.window_manager.window_buffer_at(&position.into());
 
     if let Some(surface) = surface {
       if self.seat_manager.is_input_allowed(&surface) {
@@ -304,12 +301,11 @@ impl CursorEventHandler for Rc<CursorManager> {
       if event.state() == ButtonState::Pressed {
         let surface = self
           .window_manager
-          .borrow()
           .window_buffer_at(&self.position().into());
 
         if let Some(surface) = surface {
           if surface.can_receive_focus() {
-            self.window_manager.borrow_mut().focus_window(surface);
+            self.window_manager.focus_window(surface);
           }
         }
       }
@@ -364,7 +360,7 @@ impl CursorEventHandler for Rc<CursorManager> {
 }
 
 wayland_listener!(
-  pub CursorEventManager,
+  CursorEventManager,
   Rc<CursorManager>,
   [
     request_set_cursor => request_set_cursor_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
@@ -398,20 +394,17 @@ wayland_listener!(
 mod tests {
   use super::*;
   use crate::input::seat::SeatManager;
-  use crate::output_manager::MockOutputManager;
-  use crate::{event::Event, test_util::*};
+  use crate::output_manager::OutputManager;
+  use crate::{test_util::*, window_management_policy::WmPolicyManager};
   use std::ptr;
   use std::rc::Rc;
 
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
-    let mut output_manager = MockOutputManager::default();
-    output_manager
-      .expect_on_new_output()
-      .return_const(Event::default());
-    let output_manager = Rc::new(output_manager);
+    let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
     let seat_manager = SeatManager::mock(ptr::null_mut(), ptr::null_mut());
-    let window_manager = Rc::new(RefCell::new(WindowManager::init(seat_manager.clone())));
+    let window_manager = Rc::new(WindowManager::init(seat_manager.clone(), ptr::null_mut()));
+    let output_manager = OutputManager::mock(wm_policy_manager, window_manager.clone());
     let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
     let cursor_manager = CursorManager::init(
       output_manager,
