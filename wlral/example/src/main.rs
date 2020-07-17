@@ -272,7 +272,7 @@ fn main() {
 
   let compositor = Compositor::init();
   compositor.config_manager().update_config(|config| {
-    config.keyboard.xkb_layout = "us".to_string();
+    config.background_color = [0.3, 0.3, 0.3];
   });
   let output_management_protocol = compositor
     .enable_output_management_protocol(30_000)

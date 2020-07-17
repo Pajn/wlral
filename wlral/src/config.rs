@@ -3,9 +3,10 @@ use log::debug;
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, rc::Rc};
 
-#[derive(Default, Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Config {
   pub keyboard: KeyboardConfig,
+  pub background_color: [f32; 3],
 }
 
 pub struct ConfigManager {

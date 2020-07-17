@@ -2,6 +2,7 @@
 use crate::output::{Output, OutputEvents};
 use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
 use crate::{
+  config::ConfigManager,
   event::{Event, EventOnce},
   window_manager::WindowManager,
 };
@@ -26,6 +27,7 @@ fn new_output(manager: Rc<OutputManager>, output: *mut wlr_output) {
     output_layout,
     output,
     created_at: Instant::now(),
+    background_color: RefCell::new(manager.config_manager.config().background_color.clone()),
     on_destroy: EventOnce::default(),
     event_manager: RefCell::new(None),
   };
@@ -66,9 +68,20 @@ fn new_output(manager: Rc<OutputManager>, output: *mut wlr_output) {
 
   #[cfg(not(test))]
   output.bind_events();
+  let subscription_id =
+    manager
+      .config_manager
+      .on_config_changed()
+      .subscribe(listener!(output => move |config| {
+        *output.background_color.borrow_mut() = config.background_color.clone();
+      }));
   output
     .on_destroy
     .then(listener!(manager, output => move || {
+      manager
+      .config_manager
+      .on_config_changed().unsubscribe(subscription_id);
+
       manager
         .wm_policy_manager
         .borrow_mut()
@@ -91,6 +104,7 @@ fn new_output(manager: Rc<OutputManager>, output: *mut wlr_output) {
 }
 
 pub struct OutputManager {
+  config_manager: Rc<ConfigManager>,
   wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
   window_manager: Rc<WindowManager>,
   display: *mut wl_display,
@@ -142,6 +156,7 @@ impl OutputManager {
 
 impl OutputManager {
   pub(crate) fn init(
+    config_manager: Rc<ConfigManager>,
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
     window_manager: Rc<WindowManager>,
     display: *mut wl_display,
@@ -154,6 +169,7 @@ impl OutputManager {
     let xdg_output_manager_v1 = unsafe { wlr_xdg_output_manager_v1_create(display, output_layout) };
 
     let output_manager = Rc::new(OutputManager {
+      config_manager,
       wm_policy_manager,
       window_manager,
       display,
@@ -182,10 +198,12 @@ impl OutputManager {
 
   #[cfg(test)]
   pub(crate) fn mock(
+    config_manager: Rc<ConfigManager>,
     wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
     window_manager: Rc<WindowManager>,
   ) -> Rc<OutputManager> {
     Rc::new(OutputManager {
+      config_manager,
       wm_policy_manager,
       window_manager,
       display: std::ptr::null_mut(),
@@ -224,10 +242,12 @@ mod tests {
 
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
+    let config_manager = Rc::new(ConfigManager::new());
     let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
     let seat_manager = SeatManager::mock(ptr::null_mut(), ptr::null_mut());
     let window_manager = Rc::new(WindowManager::init(seat_manager, ptr::null_mut()));
     let output_manager = Rc::new(OutputManager {
+      config_manager,
       wm_policy_manager: wm_policy_manager.clone(),
       window_manager: window_manager.clone(),
       display: ptr::null_mut(),

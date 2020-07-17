@@ -96,6 +96,7 @@ impl Compositor {
       let output_layout = wlr_output_layout_create();
 
       let output_manager = OutputManager::init(
+        config_manager.clone(),
         wm_policy_manager.clone(),
         window_manager.clone(),
         display,
@@ -161,6 +162,7 @@ impl Compositor {
         panic!("Unable to open wayland socket");
       }
       let socket_name = CStr::from_ptr(socket).to_string_lossy().into_owned();
+      env::set_var("WAYLAND_DISPLAY", socket_name.clone());
       env::set_var("_WAYLAND_DISPLAY", socket_name.clone());
 
       debug!("Compositor::init");

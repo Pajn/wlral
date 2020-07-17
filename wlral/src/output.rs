@@ -18,6 +18,7 @@ pub struct Output {
   pub(crate) output_layout: *mut wlr_output_layout,
   pub(crate) output: *mut wlr_output,
   pub(crate) created_at: Instant,
+  pub(crate) background_color: RefCell<[f32; 3]>,
 
   pub(crate) on_destroy: EventOnce<()>,
 
@@ -213,7 +214,13 @@ impl OutputEventHandler for Rc<Output> {
       // Begin the renderer (calls glViewport and some other GL sanity checks)
       wlr_renderer_begin(self.renderer, width, height);
 
-      let color = [0.3, 0.3, 0.3, 1.0];
+      let background_color = self.background_color.borrow();
+      let color = [
+        background_color[0],
+        background_color[1],
+        background_color[2],
+        1.0,
+      ];
       wlr_renderer_clear(self.renderer, &color[0]);
 
       let now = Instant::now();
