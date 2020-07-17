@@ -14,28 +14,33 @@ use xkbcommon::xkb;
 use xkbcommon::xkb::ffi::xkb_state_ref;
 
 #[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+pub struct RepeatRate(u32);
+
+impl Default for RepeatRate {
+  fn default() -> Self {
+    RepeatRate(33)
+  }
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+pub struct RepeatDelay(u32);
+
+impl Default for RepeatDelay {
+  fn default() -> Self {
+    RepeatDelay(500)
+  }
+}
+
+#[derive(Default, Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct KeyboardConfig {
   pub xkb_rules: String,
   pub xkb_model: String,
   pub xkb_layout: String,
   pub xkb_variant: String,
   pub xkb_options: Option<String>,
-  pub repeat_rate: u32,
-  pub repeat_delay: u32,
-}
-
-impl Default for KeyboardConfig {
-  fn default() -> Self {
-    KeyboardConfig {
-      xkb_rules: "".to_string(),
-      xkb_model: "".to_string(),
-      xkb_layout: "".to_string(),
-      xkb_variant: "".to_string(),
-      xkb_options: None,
-      repeat_rate: 33,
-      repeat_delay: 500,
-    }
-  }
+  pub repeat_rate: RepeatRate,
+  pub repeat_delay: RepeatDelay,
 }
 
 pub struct Keyboard {
@@ -132,8 +137,8 @@ fn set_keymap_from_config(keyboard_ptr: *mut wlr_keyboard, config: &KeyboardConf
     wlr_keyboard_set_keymap(keyboard_ptr, keymap.get_raw_ptr());
     wlr_keyboard_set_repeat_info(
       keyboard_ptr,
-      config.repeat_rate as i32,
-      config.repeat_delay as i32,
+      config.repeat_rate.0 as i32,
+      config.repeat_delay.0 as i32,
     );
   }
 }

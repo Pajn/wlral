@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, rc::Rc};
 
 #[derive(Default, Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Config {
   pub keyboard: KeyboardConfig,
   pub background_color: [f32; 3],
