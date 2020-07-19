@@ -120,6 +120,45 @@ impl SurfaceExt for XdgSurface {
     }
   }
 
+  fn min_height(&self) -> Option<u32> {
+    match self.get_type() {
+      Toplevel(toplevel) => unsafe { Some((*toplevel).current.min_height) },
+      _ => None,
+    }
+  }
+  fn max_height(&self) -> Option<u32> {
+    match self.get_type() {
+      Toplevel(toplevel) => unsafe {
+        let max = (*toplevel).current.max_height;
+        if max == 0 {
+          None
+        } else {
+          Some(max)
+        }
+      },
+      _ => None,
+    }
+  }
+  fn min_width(&self) -> Option<u32> {
+    match self.get_type() {
+      Toplevel(toplevel) => unsafe { Some((*toplevel).current.min_width) },
+      _ => None,
+    }
+  }
+  fn max_width(&self) -> Option<u32> {
+    match self.get_type() {
+      Toplevel(toplevel) => unsafe {
+        let max = (*toplevel).current.max_width;
+        if max == 0 {
+          None
+        } else {
+          Some(max)
+        }
+      },
+      _ => None,
+    }
+  }
+
   fn can_receive_focus(&self) -> bool {
     match self.get_type() {
       Toplevel(_) => true,

@@ -87,6 +87,10 @@ impl Window {
     self.surface.wlr_surface()
   }
 
+  pub fn parent_wlr_surface(&self) -> Option<*mut wlr_surface> {
+    self.surface.parent_wlr_surface()
+  }
+
   pub fn on_entered_output(&self) -> &Event<Rc<Output>> {
     &self.on_entered_output
   }
@@ -165,6 +169,19 @@ impl Window {
 
   pub fn resize(&self, size: Size) {
     self.surface.resize(size);
+  }
+
+  pub fn min_height(&self) -> Option<u32> {
+    self.surface.min_height()
+  }
+  pub fn max_height(&self) -> Option<u32> {
+    self.surface.max_height()
+  }
+  pub fn min_width(&self) -> Option<u32> {
+    self.surface.min_width()
+  }
+  pub fn max_width(&self) -> Option<u32> {
+    self.surface.max_width()
   }
 
   pub fn activated(&self) -> bool {

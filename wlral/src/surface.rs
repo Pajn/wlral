@@ -42,6 +42,11 @@ pub(crate) trait SurfaceExt {
   /// Returns the associated configure serial
   fn resize(&self, size: Size) -> u32;
 
+  fn min_height(&self) -> Option<u32>;
+  fn max_height(&self) -> Option<u32>;
+  fn min_width(&self) -> Option<u32>;
+  fn max_width(&self) -> Option<u32>;
+
   fn can_receive_focus(&self) -> bool;
   fn activated(&self) -> bool;
   /// Returns the associated configure serial
@@ -142,6 +147,43 @@ impl SurfaceExt for Surface {
       Xwayland(surface) => surface.resize(size),
       #[cfg(test)]
       Null => 1,
+    }
+  }
+
+  fn min_height(&self) -> Option<u32> {
+    match self {
+      Layer(surface) => surface.min_height(),
+      Xdg(surface) => surface.min_height(),
+      Xwayland(surface) => surface.min_height(),
+      #[cfg(test)]
+      Null => None,
+    }
+  }
+  fn max_height(&self) -> Option<u32> {
+    match self {
+      Layer(surface) => surface.max_height(),
+      Xdg(surface) => surface.max_height(),
+      Xwayland(surface) => surface.max_height(),
+      #[cfg(test)]
+      Null => None,
+    }
+  }
+  fn min_width(&self) -> Option<u32> {
+    match self {
+      Layer(surface) => surface.min_width(),
+      Xdg(surface) => surface.min_width(),
+      Xwayland(surface) => surface.min_width(),
+      #[cfg(test)]
+      Null => None,
+    }
+  }
+  fn max_width(&self) -> Option<u32> {
+    match self {
+      Layer(surface) => surface.max_width(),
+      Xdg(surface) => surface.max_width(),
+      Xwayland(surface) => surface.max_width(),
+      #[cfg(test)]
+      Null => None,
     }
   }
 

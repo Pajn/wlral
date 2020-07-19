@@ -18,6 +18,9 @@ use wlroots_sys::*;
 /// as a ponyfill
 const CONFIGURE_SERIAL: u32 = 1;
 
+const SIZE_HINT_MINSIZE: u32 = 1 << 4;
+const SIZE_HINT_MAXSIZE: u32 = 1 << 5;
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct XwaylandSurface(*mut wlr_xwayland_surface);
 
@@ -92,6 +95,51 @@ impl SurfaceExt for XwaylandSurface {
         size.height as u16,
       );
       CONFIGURE_SERIAL
+    }
+  }
+
+  fn min_height(&self) -> Option<u32> {
+    unsafe {
+      if (*self.0).size_hints.is_null() {
+        return None;
+      }
+      if (*(*self.0).size_hints).flags & SIZE_HINT_MINSIZE == 0 {
+        return None;
+      }
+      Some((*(*self.0).size_hints).min_height as u32)
+    }
+  }
+  fn max_height(&self) -> Option<u32> {
+    unsafe {
+      if (*self.0).size_hints.is_null() {
+        return None;
+      }
+      if (*(*self.0).size_hints).flags & SIZE_HINT_MAXSIZE == 0 {
+        return None;
+      }
+      Some((*(*self.0).size_hints).max_height as u32)
+    }
+  }
+  fn min_width(&self) -> Option<u32> {
+    unsafe {
+      if (*self.0).size_hints.is_null() {
+        return None;
+      }
+      if (*(*self.0).size_hints).flags & SIZE_HINT_MINSIZE == 0 {
+        return None;
+      }
+      Some((*(*self.0).size_hints).min_width as u32)
+    }
+  }
+  fn max_width(&self) -> Option<u32> {
+    unsafe {
+      if (*self.0).size_hints.is_null() {
+        return None;
+      }
+      if (*(*self.0).size_hints).flags & SIZE_HINT_MAXSIZE == 0 {
+        return None;
+      }
+      Some((*(*self.0).size_hints).max_width as u32)
     }
   }
 

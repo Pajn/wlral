@@ -113,6 +113,19 @@ impl SurfaceExt for LayerSurface {
     0
   }
 
+  fn min_height(&self) -> Option<u32> {
+    None
+  }
+  fn max_height(&self) -> Option<u32> {
+    None
+  }
+  fn min_width(&self) -> Option<u32> {
+    None
+  }
+  fn max_width(&self) -> Option<u32> {
+    None
+  }
+
   fn can_receive_focus(&self) -> bool {
     unsafe { (*self.current().0).keyboard_interactive }
   }
