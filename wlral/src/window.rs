@@ -250,9 +250,20 @@ impl Window {
   }
 }
 
+impl Eq for Window {}
 impl PartialEq for Window {
   fn eq(&self, other: &Window) -> bool {
     self.surface == other.surface
+  }
+}
+impl Ord for Window {
+  fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    self.wlr_surface().cmp(&other.wlr_surface())
+  }
+}
+impl PartialOrd for Window {
+  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    Some(self.cmp(other))
   }
 }
 

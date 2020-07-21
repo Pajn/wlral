@@ -186,9 +186,20 @@ impl Output {
   }
 }
 
+impl Eq for Output {}
 impl PartialEq for Output {
   fn eq(&self, other: &Output) -> bool {
     self.output == other.output
+  }
+}
+impl Ord for Output {
+  fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    self.output.cmp(&other.output)
+  }
+}
+impl PartialOrd for Output {
+  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    Some(self.cmp(other))
   }
 }
 
