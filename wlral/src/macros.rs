@@ -3,7 +3,7 @@
 /// Gets the offset of a field. Used by container_of!
 macro_rules! offset_of(
   ($ty:ty, $field:ident) => {
-    &(*(0 as *const $ty)).$field as *const _ as usize
+    &(*(::std::ptr::null::<$ty>())).$field as *const _ as usize
   }
 );
 
@@ -114,7 +114,7 @@ macro_rules! wayland_listener {
     #[repr(C)]
     $pub struct $struct_name {
         data: $data,
-        $($($listener: Option<$crate::wayland_sys::server::wl_listener>),*)*
+        $($($listener: Option<::wayland_sys::server::wl_listener>),*)*
     }
 
     impl $struct_name {
@@ -125,7 +125,7 @@ macro_rules! wayland_listener {
         }))
       }
 
-      $($(#[cfg_attr(test, allow(dead_code))] pub(crate) unsafe extern "C" fn $listener(&mut self, signal: *mut $crate::wayland_sys::server::wl_signal) {
+      $($(#[cfg_attr(test, allow(dead_code))] pub(crate) unsafe extern "C" fn $listener(&mut self, signal: *mut ::wayland_sys::server::wl_signal) {
           if self.$listener.is_some() {
             self.$listener = None;
             panic!("Listener $listener is already bound");
@@ -135,28 +135,28 @@ macro_rules! wayland_listener {
             // * Need to pass a pointer to wl_list_init
             // * The list is initialized by Wayland, which doesn't "drop"
             // * The listener is written to without dropping any of the data
-            let mut listener: ::std::mem::MaybeUninit<$crate::wayland_sys::server::wl_listener> = ::std::mem::MaybeUninit::uninit();
-            use $crate::wayland_sys::{ffi_dispatch, server::WAYLAND_SERVER_HANDLE};
+            let mut listener: ::std::mem::MaybeUninit<::wayland_sys::server::wl_listener> = ::std::mem::MaybeUninit::uninit();
+            use ::wayland_sys::{ffi_dispatch, server::WAYLAND_SERVER_HANDLE};
             ffi_dispatch!(WAYLAND_SERVER_HANDLE,
                           wl_list_init,
                           &mut (*listener.as_mut_ptr()).link as *mut _ as _);
             (*listener.as_mut_ptr()).notify = $struct_name::$listener_func;
             listener.assume_init()
           });
-          $crate::wayland_sys::server::signal::wl_signal_add(
+          ::wayland_sys::server::signal::wl_signal_add(
             signal,
             self.$listener.as_ref().map_or_else(::std::ptr::null_mut, |x| x as *const _ as *mut _)
           );
       })*)*
 
       $($(#[cfg_attr(test, allow(dead_code))] pub(crate) unsafe extern "C" fn $listener_func(listener:
-                                                *mut $crate::wayland_sys::server::wl_listener,
-                                                data: *mut $crate::libc::c_void) {
+                                                *mut ::wayland_sys::server::wl_listener,
+                                                data: *mut ::wlroots_sys::libc::c_void) {
         let manager: &mut $struct_name = &mut (*container_of!(listener,
                                                               $struct_name,
                                                               $listener));
         // TODO: Handle unwind
-        // $crate::utils::handle_unwind(
+        // ::utils::handle_unwind(
         //     ::std::panic::catch_unwind(
         //         ::std::panic::AssertUnwindSafe(|| {
         //             #[allow(clippy::redundant_closure_call)]
@@ -170,7 +170,7 @@ macro_rules! wayland_listener {
     impl Drop for $struct_name {
       fn drop(&mut self) {
         unsafe {
-          use $crate::wayland_sys::{ffi_dispatch, server::WAYLAND_SERVER_HANDLE};
+          use ::wayland_sys::{ffi_dispatch, server::WAYLAND_SERVER_HANDLE};
           $($(
             if let Some(listener) = self.$listener.as_ref() {
               ffi_dispatch!(

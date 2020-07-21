@@ -25,15 +25,15 @@ wayland_listener!(
   Box<dyn SeatEventHandler>,
   [
      new_input => new_input_func: |this: &mut SeatEventManager, data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
+         let handler = &mut this.data;
          handler.new_input(data as _)
      };
      inhibit_activate => inhibit_activate_func: |this: &mut SeatEventManager, _data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
+         let handler = &mut this.data;
          handler.inhibit_activate()
      };
      inhibit_deactivate => inhibit_deactivate_func: |this: &mut SeatEventManager, _data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
+         let handler = &mut this.data;
          handler.inhibit_deactivate()
      };
   ]
@@ -108,10 +108,10 @@ impl SeatManager {
 
   fn update_capabilities(&self) {
     let mut caps = 0;
-    if self.has_any_pointer.borrow().clone() {
+    if *self.has_any_pointer.borrow() {
       caps |= WL_SEAT_CAPABILITY_POINTER;
     }
-    if self.has_any_keyboard.borrow().clone() {
+    if *self.has_any_keyboard.borrow() {
       caps |= WL_SEAT_CAPABILITY_KEYBOARD;
     }
 
@@ -134,20 +134,20 @@ impl SeatManager {
     if !exclusive_client.is_null() {
       // Clear keyboard focus
       unsafe {
-        if !(*self.seat).keyboard_state.focused_client.is_null() {
-          if (*(*self.seat).keyboard_state.focused_client).client != exclusive_client {
-            wlr_seat_keyboard_clear_focus(self.seat);
-          }
+        if !(*self.seat).keyboard_state.focused_client.is_null()
+          && (*(*self.seat).keyboard_state.focused_client).client != exclusive_client
+        {
+          wlr_seat_keyboard_clear_focus(self.seat);
         }
       }
 
       // Clear pointer focus
       unsafe {
-        if !(*self.seat).pointer_state.focused_client.is_null() {
-          if (*(*self.seat).pointer_state.focused_client).client != exclusive_client {
-            // TODO: Change to wlr_seat_pointer_notify_clear_focus after updating wlroots
-            wlr_seat_pointer_clear_focus(self.seat);
-          }
+        if !(*self.seat).pointer_state.focused_client.is_null()
+          && (*(*self.seat).pointer_state.focused_client).client != exclusive_client
+        {
+          // TODO: Change to wlr_seat_pointer_notify_clear_focus after updating wlroots
+          wlr_seat_pointer_clear_focus(self.seat);
         }
       }
     }
@@ -156,7 +156,7 @@ impl SeatManager {
   }
 
   pub(crate) fn is_input_allowed(&self, window: &Window) -> bool {
-    let exclusive_client = self.exclusive_client.borrow().clone();
+    let exclusive_client = *self.exclusive_client.borrow();
     exclusive_client.is_null() || exclusive_client == window.wl_client()
   }
 }

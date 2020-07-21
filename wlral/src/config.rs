@@ -10,19 +10,13 @@ pub struct Config {
   pub background_color: [f32; 3],
 }
 
+#[derive(Default)]
 pub struct ConfigManager {
   config: RefCell<Rc<Config>>,
   on_config_changed: Event<Rc<Config>>,
 }
 
 impl ConfigManager {
-  pub fn new() -> ConfigManager {
-    ConfigManager {
-      config: RefCell::new(Rc::new(Config::default())),
-      on_config_changed: Event::default(),
-    }
-  }
-
   pub fn config(&self) -> Rc<Config> {
     self.config.borrow().clone()
   }

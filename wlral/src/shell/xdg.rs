@@ -264,23 +264,22 @@ wayland_listener!(
   WindowEventHandler,
   [
     map => map_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.map()
     };
     unmap => unmap_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.unmap()
     };
     destroy => destroy_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.destroy();
     };
-    new_popup => new_popup_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut _handler = this.data;
+    new_popup => new_popup_func: |_this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
       debug!("XdgSurfaceEventManager::new_popup");
     };
     commit => commit_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       if let Some(window) = handler.window.upgrade() {
         if let Surface::Xdg(ref xdg_surface) = window.surface {
           handler.commit(WindowCommitEvent {
@@ -290,18 +289,18 @@ wayland_listener!(
       }
     };
     request_move => request_move_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.request_move();
     };
     request_resize => request_resize_func: |this: &mut XdgSurfaceEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       let event: *mut wlr_xdg_toplevel_resize_event = data as _;
       handler.request_resize(WindowResizeEvent {
         edges: (*event).edges,
       });
     };
     request_maximize => request_maximize_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       if let Some(window) = handler.window.upgrade() {
         if let Surface::Xdg(ref xdg_surface) = window.surface {
           if let Toplevel(toplevel) = xdg_surface.get_type() {
@@ -313,7 +312,7 @@ wayland_listener!(
       }
     };
     request_fullscreen => request_fullscreen_func: |this: &mut XdgSurfaceEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       let event: *mut wlr_xdg_toplevel_set_fullscreen_event = data as _;
       handler.request_fullscreen(WindowFullscreenEvent {
         fullscreen: (*event).fullscreen,
@@ -321,15 +320,15 @@ wayland_listener!(
       });
     };
     request_minimize => request_minimize_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.request_minimize();
     };
     set_app_id => set_app_id_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.updated_app_id();
     };
     set_title => set_title_func: |this: &mut XdgSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.updated_title();
     };
   ]
@@ -378,19 +377,16 @@ impl XdgEventHandler {
       event_manager.new_popup(&mut (*xdg_surface).events.new_popup);
       event_manager.commit(&mut (*(*xdg_surface).surface).events.commit);
 
-      match XdgSurface(xdg_surface).get_type() {
-        Toplevel(toplevel) => {
-          let toplevel = &mut *toplevel;
+      if let Toplevel(toplevel) = XdgSurface(xdg_surface).get_type() {
+        let toplevel = &mut *toplevel;
 
-          event_manager.request_move(&mut toplevel.events.request_move);
-          event_manager.request_resize(&mut toplevel.events.request_resize);
-          event_manager.request_maximize(&mut toplevel.events.request_maximize);
-          event_manager.request_fullscreen(&mut toplevel.events.request_fullscreen);
-          event_manager.request_minimize(&mut toplevel.events.request_minimize);
-          event_manager.set_app_id(&mut toplevel.events.set_app_id);
-          event_manager.set_title(&mut toplevel.events.set_title);
-        }
-        _ => {}
+        event_manager.request_move(&mut toplevel.events.request_move);
+        event_manager.request_resize(&mut toplevel.events.request_resize);
+        event_manager.request_maximize(&mut toplevel.events.request_maximize);
+        event_manager.request_fullscreen(&mut toplevel.events.request_fullscreen);
+        event_manager.request_minimize(&mut toplevel.events.request_minimize);
+        event_manager.set_app_id(&mut toplevel.events.set_app_id);
+        event_manager.set_title(&mut toplevel.events.set_title);
       }
     }
 
@@ -408,7 +404,7 @@ wayland_listener!(
   Rc<RefCell<XdgEventHandler>>,
   [
      new_surface => new_surface_func: |this: &mut XdgEventManager, data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
+         let handler = &mut this.data;
          handler.borrow_mut().new_surface(data as _)
      };
   ]

@@ -217,53 +217,53 @@ wayland_listener!(
   WindowEventHandler,
   [
     map => map_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.map()
     };
     unmap => unmap_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.unmap()
     };
     destroy => destroy_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.destroy();
     };
     commit => commit_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.commit(WindowCommitEvent {
         serial: CONFIGURE_SERIAL,
       });
     };
     request_move => request_move_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.request_move();
     };
     request_resize => request_resize_func: |this: &mut XwaylandSurfaceEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       let event: *mut wlr_xwayland_resize_event = data as _;
       handler.request_resize(WindowResizeEvent {
         edges: (*event).edges,
       });
     };
     request_maximize => request_maximize_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.request_maximize(WindowMaximizeEvent {
         maximize: true,
       });
     };
     request_fullscreen => request_fullscreen_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.request_fullscreen(WindowFullscreenEvent {
         fullscreen: true,
         output: None,
       });
     };
     set_class => set_class_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.updated_app_id();
     };
     set_title => set_title_func: |this: &mut XwaylandSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.updated_title();
     };
   ]
@@ -322,7 +322,7 @@ wayland_listener!(
   Rc<RefCell<XwaylandEventHandler>>,
   [
      new_surface => new_surface_func: |this: &mut XwaylandEventManager, data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
+         let handler = &mut this.data;
          handler.borrow_mut().new_surface(data as _)
      };
   ]
@@ -355,7 +355,7 @@ impl XwaylandManager {
         .into_owned()
     };
     env::set_var("_DISPLAY", socket_name.clone());
-    info!("DISPLAY={}", socket_name.clone());
+    info!("DISPLAY={}", socket_name);
 
     let event_handler = Rc::new(RefCell::new(XwaylandEventHandler {
       wm_policy_manager,

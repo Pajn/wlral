@@ -177,19 +177,19 @@ wayland_listener!(
   WindowEventHandler,
   [
     map => map_func: |this: &mut LayerSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.map()
     };
     unmap => unmap_func: |this: &mut LayerSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.unmap()
     };
     destroy => destroy_func: |this: &mut LayerSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.destroy();
     };
     commit => commit_func: |this: &mut LayerSurfaceEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       if let Some(window) = handler.window.upgrade() {
         update_anchor_edges(handler.output_manager.clone(), &window);
         if let Surface::Layer(ref layer_surface_v1) = window.surface {
@@ -375,7 +375,7 @@ wayland_listener!(
   Rc<RefCell<LayersEventHandler>>,
   [
      new_surface => new_surface_func: |this: &mut LayersEventManager, data: *mut libc::c_void,| unsafe {
-         let ref mut handler = this.data;
+         let handler = &mut this.data;
          handler.borrow_mut().new_surface(data as _)
      };
   ]

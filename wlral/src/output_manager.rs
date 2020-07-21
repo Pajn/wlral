@@ -27,7 +27,7 @@ fn new_output(manager: Rc<OutputManager>, output: *mut wlr_output) {
     output_layout,
     output,
     created_at: Instant::now(),
-    background_color: RefCell::new(manager.config_manager.config().background_color.clone()),
+    background_color: RefCell::new(manager.config_manager.config().background_color),
     on_destroy: EventOnce::default(),
     event_manager: RefCell::new(None),
   };
@@ -73,7 +73,7 @@ fn new_output(manager: Rc<OutputManager>, output: *mut wlr_output) {
       .config_manager
       .on_config_changed()
       .subscribe(listener!(output => move |config| {
-        *output.background_color.borrow_mut() = config.background_color.clone();
+        *output.background_color.borrow_mut() = config.background_color;
       }));
   output
     .on_destroy

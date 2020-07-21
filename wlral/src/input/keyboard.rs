@@ -143,7 +143,7 @@ fn set_keymap_from_config(keyboard_ptr: *mut wlr_keyboard, config: &KeyboardConf
   }
 }
 
-pub trait KeyboardEventHandler {
+pub(crate) trait KeyboardEventHandler {
   fn modifiers(&self);
   fn key(&self, event: *const wlr_event_keyboard_key);
 }

@@ -1,6 +1,3 @@
-pub(crate) use wayland_sys;
-pub(crate) use wlroots_sys::libc;
-
 pub mod macros;
 
 pub mod compositor;

@@ -200,9 +200,10 @@ impl CursorManager {
         // If there's no surface under the cursor, set the cursor image to a
         // default. This is what makes the cursor image appear when you move it
         // around the screen, not over any surfaces.
+        let cursor_image_name = CString::new("left_ptr").unwrap();
         wlr_xcursor_manager_set_cursor_image(
           self.cursor_mgr,
-          CString::new("left_ptr").unwrap().as_ptr(),
+          cursor_image_name.as_ptr(),
           self.cursor,
         );
         // TODO: Change to wlr_seat_pointer_notify_clear_focus after updating wlroots
@@ -236,7 +237,7 @@ impl CursorManager {
   }
 }
 
-pub trait CursorEventHandler {
+pub(crate) trait CursorEventHandler {
   fn request_set_cursor(&self, event: *const wlr_seat_pointer_request_set_cursor_event);
   fn axis(&self, event: *const wlr_event_pointer_axis);
   fn button(&self, event: *const wlr_event_pointer_button);
@@ -364,27 +365,27 @@ wayland_listener!(
   Rc<CursorManager>,
   [
     request_set_cursor => request_set_cursor_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.request_set_cursor(data as _)
     };
     motion => motion_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.motion(data as _)
     };
     motion_absolute => motion_absolute_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.motion_absolute(data as _)
     };
     button => button_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.button(data as _)
     };
     axis => axis_func: |this: &mut CursorEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.axis(data as _)
     };
     frame => frame_func: |this: &mut CursorEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.frame()
     };
   ]

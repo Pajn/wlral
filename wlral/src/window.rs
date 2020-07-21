@@ -318,7 +318,7 @@ impl ForeignToplevelEventHandler {
     if let Some(window) = self.window.upgrade() {
       let handle = ForeignToplevelHandle(event.toplevel);
       let request = ActivateRequest {
-        window: window.clone(),
+        window,
         originator: RequestOriginator::Foreign(&handle),
       };
 
@@ -332,7 +332,7 @@ impl ForeignToplevelEventHandler {
     if let Some(window) = self.window.upgrade() {
       let handle = ForeignToplevelHandle(self.handle);
       let request = CloseRequest {
-        window: window.clone(),
+        window,
         originator: RequestOriginator::Foreign(&handle),
       };
 
@@ -346,7 +346,7 @@ impl ForeignToplevelEventHandler {
     if let Some(window) = self.window.upgrade() {
       let handle = ForeignToplevelHandle(event.toplevel);
       let request = FullscreenRequest {
-        window: window.clone(),
+        window,
         fullscreen: event.fullscreen,
         output: self
           .output_manager
@@ -367,7 +367,7 @@ impl ForeignToplevelEventHandler {
     if let Some(window) = self.window.upgrade() {
       let handle = ForeignToplevelHandle(event.toplevel);
       let request = MaximizeRequest {
-        window: window.clone(),
+        window,
         maximize: event.maximized,
         originator: RequestOriginator::Foreign(&handle),
       };
@@ -382,7 +382,7 @@ impl ForeignToplevelEventHandler {
     if let Some(window) = self.window.upgrade() {
       let handle = ForeignToplevelHandle(event.toplevel);
       let request = MinimizeRequest {
-        window: window.clone(),
+        window,
         minimize: event.minimized,
         originator: RequestOriginator::Foreign(&handle),
       };
@@ -433,27 +433,27 @@ wayland_listener!(
   ForeignToplevelEventHandler,
   [
     request_activate => request_activate_func: |this: &mut ForeignToplevelEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.request_activate(*(data as *mut wlr_foreign_toplevel_handle_v1_activated_event))
     };
     request_close => request_close_func: |this: &mut ForeignToplevelEventManager, _data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.request_close()
     };
     request_fullscreen => request_fullscreen_func: |this: &mut ForeignToplevelEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.request_fullscreen(*(data as *mut wlr_foreign_toplevel_handle_v1_fullscreen_event));
     };
     request_maximize => request_maximize_func: |this: &mut ForeignToplevelEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.request_maximize(*(data as *mut wlr_foreign_toplevel_handle_v1_maximized_event));
     };
     request_minimize => request_minimize_func: |this: &mut ForeignToplevelEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.request_minimize(*(data as *mut wlr_foreign_toplevel_handle_v1_minimized_event));
     };
     set_rectangle => set_rectangle_func: |this: &mut ForeignToplevelEventManager, data: *mut libc::c_void,| unsafe {
-      let ref mut handler = this.data;
+      let handler = &mut this.data;
       handler.set_rectangle(*(data as *mut wlr_foreign_toplevel_handle_v1_set_rectangle_event));
     };
   ]
@@ -552,7 +552,7 @@ impl WindowEventHandler {
         .wm_policy_manager
         .borrow_mut()
         .advise_delete_window(window.clone());
-      self.window_manager.destroy_window(window.clone());
+      self.window_manager.destroy_window(window);
     }
   }
 
@@ -573,7 +573,7 @@ impl WindowEventHandler {
       self
         .wm_policy_manager
         .borrow_mut()
-        .advise_configured_window(window.clone());
+        .advise_configured_window(window);
     }
   }
 
@@ -595,7 +595,7 @@ impl WindowEventHandler {
   pub(crate) fn request_resize(&mut self, event: WindowResizeEvent) {
     if let Some(window) = self.window.upgrade() {
       let request = ResizeRequest {
-        window: window.clone(),
+        window,
         cursor_position: self.cursor_manager.position(),
         edges: WindowEdge::from_bits_truncate(event.edges),
       };
@@ -610,7 +610,7 @@ impl WindowEventHandler {
   pub(crate) fn request_maximize(&mut self, event: WindowMaximizeEvent) {
     if let Some(window) = self.window.upgrade() {
       let request = MaximizeRequest {
-        window: window.clone(),
+        window,
         maximize: event.maximize,
         originator: RequestOriginator::Application,
       };
@@ -624,7 +624,7 @@ impl WindowEventHandler {
   pub(crate) fn request_fullscreen(&mut self, event: WindowFullscreenEvent) {
     if let Some(window) = self.window.upgrade() {
       let request = FullscreenRequest {
-        window: window.clone(),
+        window,
         fullscreen: event.fullscreen,
         output: self
           .output_manager
@@ -647,7 +647,7 @@ impl WindowEventHandler {
         .wm_policy_manager
         .borrow_mut()
         .handle_request_minimize(MinimizeRequest {
-          window: window.clone(),
+          window,
           minimize: true,
           originator: RequestOriginator::Application,
         });

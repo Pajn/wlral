@@ -51,7 +51,7 @@ pub struct Compositor {
 impl Compositor {
   pub fn init() -> Compositor {
     let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
-    let config_manager = Rc::new(ConfigManager::new());
+    let config_manager = Rc::new(ConfigManager::default());
 
     unsafe {
       // The Wayland display is managed by libwayland. It handles accepting
@@ -86,7 +86,8 @@ impl Compositor {
       // operates the computer. This conceptually includes up to one keyboard,
       // pointer, touch, and drawing tablet device. We also rig up a listener to
       // let us know when new input devices are available on the backend.
-      let seat = wlr_seat_create(display, CString::new("seat0").unwrap().as_ptr());
+      let seat_name = CString::new("seat0").unwrap();
+      let seat = wlr_seat_create(display, seat_name.as_ptr());
 
       let seat_manager = SeatManager::init(display, backend, seat);
       let window_manager = Rc::new(WindowManager::init(seat_manager.clone(), display));
@@ -163,7 +164,7 @@ impl Compositor {
       }
       let socket_name = CStr::from_ptr(socket).to_string_lossy().into_owned();
       env::set_var("WAYLAND_DISPLAY", socket_name.clone());
-      env::set_var("_WAYLAND_DISPLAY", socket_name.clone());
+      env::set_var("_WAYLAND_DISPLAY", socket_name);
 
       debug!("Compositor::init");
 

@@ -24,7 +24,7 @@ impl<T> Default for Event<T> {
 
 impl<T> Event<T> {
   pub fn subscribe(&self, handler: EventListener<T>) -> u64 {
-    let id = self.next_id.borrow().clone();
+    let id = *self.next_id.borrow();
     *self.next_id.borrow_mut() = id + 1;
     self.listeners.borrow_mut().insert(id, Rc::new(handler));
     id
