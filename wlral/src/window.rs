@@ -319,7 +319,7 @@ impl ForeignToplevelHandle {
 
 pub(crate) struct ForeignToplevelEventHandler {
   pub(crate) handle: *mut wlr_foreign_toplevel_handle_v1,
-  pub(crate) wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+  pub(crate) wm_policy_manager: Rc<WmPolicyManager>,
   pub(crate) output_manager: Rc<OutputManager>,
   pub(crate) window: Weak<Window>,
 }
@@ -333,10 +333,7 @@ impl ForeignToplevelEventHandler {
         originator: RequestOriginator::Foreign(&handle),
       };
 
-      self
-        .wm_policy_manager
-        .borrow_mut()
-        .handle_request_activate(request);
+      self.wm_policy_manager.handle_request_activate(request);
     }
   }
   fn request_close(&self) {
@@ -347,10 +344,7 @@ impl ForeignToplevelEventHandler {
         originator: RequestOriginator::Foreign(&handle),
       };
 
-      self
-        .wm_policy_manager
-        .borrow_mut()
-        .handle_request_close(request);
+      self.wm_policy_manager.handle_request_close(request);
     }
   }
   fn request_fullscreen(&self, event: wlr_foreign_toplevel_handle_v1_fullscreen_event) {
@@ -368,10 +362,7 @@ impl ForeignToplevelEventHandler {
         originator: RequestOriginator::Foreign(&handle),
       };
 
-      self
-        .wm_policy_manager
-        .borrow_mut()
-        .handle_request_fullscreen(request);
+      self.wm_policy_manager.handle_request_fullscreen(request);
     }
   }
   fn request_maximize(&self, event: wlr_foreign_toplevel_handle_v1_maximized_event) {
@@ -383,10 +374,7 @@ impl ForeignToplevelEventHandler {
         originator: RequestOriginator::Foreign(&handle),
       };
 
-      self
-        .wm_policy_manager
-        .borrow_mut()
-        .handle_request_maximize(request);
+      self.wm_policy_manager.handle_request_maximize(request);
     }
   }
   fn request_minimize(&self, event: wlr_foreign_toplevel_handle_v1_minimized_event) {
@@ -398,10 +386,7 @@ impl ForeignToplevelEventHandler {
         originator: RequestOriginator::Foreign(&handle),
       };
 
-      self
-        .wm_policy_manager
-        .borrow_mut()
-        .handle_request_minimize(request);
+      self.wm_policy_manager.handle_request_minimize(request);
     }
   }
   fn set_rectangle(&self, event: wlr_foreign_toplevel_handle_v1_set_rectangle_event) {
@@ -471,7 +456,7 @@ wayland_listener!(
 );
 
 pub(crate) struct WindowEventHandler {
-  pub(crate) wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+  pub(crate) wm_policy_manager: Rc<WmPolicyManager>,
   pub(crate) output_manager: Rc<OutputManager>,
   pub(crate) window_manager: Rc<WindowManager>,
   pub(crate) cursor_manager: Rc<CursorManager>,
@@ -535,10 +520,7 @@ impl WindowEventHandler {
         };
       }
       window.update_outputs();
-      self
-        .wm_policy_manager
-        .borrow_mut()
-        .handle_window_ready(window.clone());
+      self.wm_policy_manager.handle_window_ready(window.clone());
       *window.mapped.borrow_mut() = true;
     }
   }
@@ -559,10 +541,7 @@ impl WindowEventHandler {
     debug!("WindowEventHandler::destroy");
     if let Some(window) = self.window.upgrade() {
       window.on_destroy.fire(());
-      self
-        .wm_policy_manager
-        .borrow_mut()
-        .advise_delete_window(window.clone());
+      self.wm_policy_manager.advise_delete_window(window.clone());
       self.window_manager.destroy_window(window);
     }
   }
@@ -581,10 +560,7 @@ impl WindowEventHandler {
           window.update_outputs();
         }
       }
-      self
-        .wm_policy_manager
-        .borrow_mut()
-        .advise_configured_window(window);
+      self.wm_policy_manager.advise_configured_window(window);
     }
   }
 
@@ -596,10 +572,7 @@ impl WindowEventHandler {
           - FPoint::from(window.extents().top_left()).as_displacement(),
       };
 
-      self
-        .wm_policy_manager
-        .borrow_mut()
-        .handle_request_move(request);
+      self.wm_policy_manager.handle_request_move(request);
     }
   }
 
@@ -611,10 +584,7 @@ impl WindowEventHandler {
         edges: WindowEdge::from_bits_truncate(event.edges),
       };
 
-      self
-        .wm_policy_manager
-        .borrow_mut()
-        .handle_request_resize(request);
+      self.wm_policy_manager.handle_request_resize(request);
     }
   }
 
@@ -626,10 +596,7 @@ impl WindowEventHandler {
         originator: RequestOriginator::Application,
       };
 
-      self
-        .wm_policy_manager
-        .borrow_mut()
-        .handle_request_maximize(request);
+      self.wm_policy_manager.handle_request_maximize(request);
     }
   }
   pub(crate) fn request_fullscreen(&mut self, event: WindowFullscreenEvent) {
@@ -646,17 +613,13 @@ impl WindowEventHandler {
         originator: RequestOriginator::Application,
       };
 
-      self
-        .wm_policy_manager
-        .borrow_mut()
-        .handle_request_fullscreen(request);
+      self.wm_policy_manager.handle_request_fullscreen(request);
     }
   }
   pub(crate) fn request_minimize(&mut self) {
     if let Some(window) = self.window.upgrade() {
       self
         .wm_policy_manager
-        .borrow_mut()
         .handle_request_minimize(MinimizeRequest {
           window,
           minimize: true,

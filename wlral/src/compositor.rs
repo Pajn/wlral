@@ -44,13 +44,13 @@ pub struct Compositor {
   cursor_manager: Rc<CursorManager>,
   keyboard_manager: Rc<KeyboardManager>,
 
-  wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+  wm_policy_manager: Rc<WmPolicyManager>,
   event_filter_manager: Rc<RefCell<EventFilterManager>>,
 }
 
 impl Compositor {
   pub fn init() -> Compositor {
-    let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
+    let wm_policy_manager = Rc::new(WmPolicyManager::new());
     let config_manager = Rc::new(ConfigManager::default());
 
     unsafe {
@@ -90,7 +90,11 @@ impl Compositor {
       let seat = wlr_seat_create(display, seat_name.as_ptr());
 
       let seat_manager = SeatManager::init(display, backend, seat);
-      let window_manager = Rc::new(WindowManager::init(seat_manager.clone(), display));
+      let window_manager = Rc::new(WindowManager::init(
+        wm_policy_manager.clone(),
+        seat_manager.clone(),
+        display,
+      ));
 
       // Creates an output layout, which a wlroots utility for working with an
       // arrangement of screens in a physical layout.
@@ -247,7 +251,6 @@ impl Compositor {
     let window_management_policy = Rc::new(RefCell::new(window_management_policy));
     self
       .wm_policy_manager
-      .borrow_mut()
       .set_policy(window_management_policy.clone());
     self
       .event_filter_manager

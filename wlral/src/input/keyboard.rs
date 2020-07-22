@@ -270,7 +270,7 @@ mod tests {
 
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
-    let config_manager = Rc::new(ConfigManager::new());
+    let config_manager = Rc::new(ConfigManager::default());
     let seat_manager = SeatManager::mock(ptr::null_mut(), ptr::null_mut());
     let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
     let keyboard_manager = Rc::new(KeyboardManager::init(

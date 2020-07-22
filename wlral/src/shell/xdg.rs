@@ -3,7 +3,7 @@ use crate::input::cursor::CursorManager;
 use crate::output_manager::OutputManager;
 use crate::surface::{Surface, SurfaceEventManager, SurfaceExt};
 use crate::window::*;
-use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
+use crate::window_management_policy::WmPolicyManager;
 use crate::window_manager::{WindowLayer, WindowManager, WindowManagerExt};
 use log::debug;
 use std::cell::RefCell;
@@ -335,7 +335,7 @@ wayland_listener!(
 );
 
 pub struct XdgEventHandler {
-  wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+  wm_policy_manager: Rc<WmPolicyManager>,
   output_manager: Rc<OutputManager>,
   window_manager: Rc<WindowManager>,
   cursor_manager: Rc<CursorManager>,
@@ -392,10 +392,7 @@ impl XdgEventHandler {
 
     *window.event_manager.borrow_mut() = Some(SurfaceEventManager::Xdg(event_manager));
 
-    self
-      .wm_policy_manager
-      .borrow_mut()
-      .advise_new_window(window);
+    self.wm_policy_manager.advise_new_window(window);
   }
 }
 
@@ -420,7 +417,7 @@ pub(crate) struct XdgManager {
 
 impl XdgManager {
   pub(crate) fn init(
-    wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+    wm_policy_manager: Rc<WmPolicyManager>,
     output_manager: Rc<OutputManager>,
     window_manager: Rc<WindowManager>,
     cursor_manager: Rc<CursorManager>,

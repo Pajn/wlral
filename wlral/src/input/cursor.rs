@@ -396,16 +396,22 @@ mod tests {
   use super::*;
   use crate::input::seat::SeatManager;
   use crate::output_manager::OutputManager;
-  use crate::{test_util::*, window_management_policy::WmPolicyManager};
+  use crate::{config::ConfigManager, test_util::*, window_management_policy::WmPolicyManager};
   use std::ptr;
   use std::rc::Rc;
 
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
-    let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
+    let config_manager = Rc::new(ConfigManager::default());
+    let wm_policy_manager = Rc::new(WmPolicyManager::new());
     let seat_manager = SeatManager::mock(ptr::null_mut(), ptr::null_mut());
-    let window_manager = Rc::new(WindowManager::init(seat_manager.clone(), ptr::null_mut()));
-    let output_manager = OutputManager::mock(wm_policy_manager, window_manager.clone());
+    let window_manager = Rc::new(WindowManager::init(
+      wm_policy_manager.clone(),
+      seat_manager.clone(),
+      ptr::null_mut(),
+    ));
+    let output_manager =
+      OutputManager::mock(config_manager, wm_policy_manager, window_manager.clone());
     let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
     let cursor_manager = CursorManager::init(
       output_manager,

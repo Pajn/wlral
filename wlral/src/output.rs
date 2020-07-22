@@ -1,6 +1,6 @@
 use crate::geometry::{Displacement, Point, Rectangle, Size, TransformMatrix};
 use crate::window::Window;
-use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
+use crate::window_management_policy::WmPolicyManager;
 use crate::{event::EventOnce, window_manager::WindowManager};
 use std::cell::RefCell;
 use std::pin::Pin;
@@ -11,7 +11,7 @@ use wlroots_sys::*;
 
 #[derive(Debug)]
 pub struct Output {
-  pub(crate) wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+  pub(crate) wm_policy_manager: Rc<WmPolicyManager>,
   pub(crate) window_manager: Rc<WindowManager>,
 
   pub(crate) renderer: *mut wlr_renderer,
@@ -261,28 +261,16 @@ impl OutputEventHandler for Rc<Output> {
   }
 
   fn enable(&self) {
-    self
-      .wm_policy_manager
-      .borrow_mut()
-      .advise_output_update(self.clone());
+    self.wm_policy_manager.advise_output_update(self.clone());
   }
   fn mode(&self) {
-    self
-      .wm_policy_manager
-      .borrow_mut()
-      .advise_output_update(self.clone());
+    self.wm_policy_manager.advise_output_update(self.clone());
   }
   fn scale(&self) {
-    self
-      .wm_policy_manager
-      .borrow_mut()
-      .advise_output_update(self.clone());
+    self.wm_policy_manager.advise_output_update(self.clone());
   }
   fn transform(&self) {
-    self
-      .wm_policy_manager
-      .borrow_mut()
-      .advise_output_update(self.clone());
+    self.wm_policy_manager.advise_output_update(self.clone());
   }
 }
 

@@ -5,6 +5,7 @@ use crate::{
   input::seat::SeatManager,
   output_manager::OutputManager,
   window::Window,
+  window_management_policy::WmPolicyManager,
 };
 use log::warn;
 use std::cell::RefCell;
@@ -57,6 +58,7 @@ impl WindowLayers {
 }
 
 pub struct WindowManager {
+  wm_policy_manager: Rc<WmPolicyManager>,
   seat_manager: Rc<SeatManager>,
   output_manager: RefCell<Weak<OutputManager>>,
   layers: RefCell<WindowLayers>,
@@ -74,9 +76,14 @@ impl std::fmt::Debug for WindowManager {
 }
 
 impl WindowManager {
-  pub(crate) fn init(seat_manager: Rc<SeatManager>, display: *mut wl_display) -> WindowManager {
+  pub(crate) fn init(
+    wm_policy_manager: Rc<WmPolicyManager>,
+    seat_manager: Rc<SeatManager>,
+    display: *mut wl_display,
+  ) -> WindowManager {
     let foreign_toplevel_manager = unsafe { wlr_foreign_toplevel_manager_v1_create(display) };
     WindowManager {
+      wm_policy_manager,
       seat_manager,
       output_manager: RefCell::new(Weak::<OutputManager>::new()),
       layers: RefCell::new(WindowLayers::default()),
@@ -200,6 +207,7 @@ impl WindowManager {
         &mut (*keyboard).modifiers,
       );
     }
+    self.wm_policy_manager.advise_focused_window(window);
   }
 
   /// Blurs the currently focused window without focusing another one
@@ -277,16 +285,25 @@ mod tests {
   use crate::input::{cursor::CursorManager, event_filter::EventFilterManager};
   use crate::output_manager::OutputManager;
   use crate::window::WindowEventHandler;
-  use crate::window_management_policy::WmPolicyManager;
+  use crate::{config::ConfigManager, window_management_policy::WmPolicyManager};
   use std::ptr;
   use std::rc::Rc;
 
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
-    let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
+    let config_manager = Rc::new(ConfigManager::default());
+    let wm_policy_manager = Rc::new(WmPolicyManager::new());
     let seat_manager = SeatManager::mock(ptr::null_mut(), ptr::null_mut());
-    let window_manager = Rc::new(WindowManager::init(seat_manager.clone(), ptr::null_mut()));
-    let output_manager = OutputManager::mock(wm_policy_manager.clone(), window_manager.clone());
+    let window_manager = Rc::new(WindowManager::init(
+      wm_policy_manager.clone(),
+      seat_manager.clone(),
+      ptr::null_mut(),
+    ));
+    let output_manager = OutputManager::mock(
+      config_manager,
+      wm_policy_manager.clone(),
+      window_manager.clone(),
+    );
     let cursor_manager = CursorManager::mock(
       output_manager.clone(),
       window_manager.clone(),

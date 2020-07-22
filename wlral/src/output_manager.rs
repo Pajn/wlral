@@ -1,6 +1,6 @@
 #[cfg_attr(test, allow(unused))]
 use crate::output::{Output, OutputEvents};
-use crate::window_management_policy::{WindowManagementPolicy, WmPolicyManager};
+use crate::window_management_policy::WmPolicyManager;
 use crate::{
   config::ConfigManager,
   event::{Event, EventOnce},
@@ -84,7 +84,6 @@ fn new_output(manager: Rc<OutputManager>, output: *mut wlr_output) {
 
       manager
         .wm_policy_manager
-        .borrow_mut()
         .advise_output_delete(output.clone());
 
       manager
@@ -97,15 +96,12 @@ fn new_output(manager: Rc<OutputManager>, output: *mut wlr_output) {
 
   manager.on_new_output.fire(output.clone());
 
-  manager
-    .wm_policy_manager
-    .borrow_mut()
-    .advise_output_create(output);
+  manager.wm_policy_manager.advise_output_create(output);
 }
 
 pub struct OutputManager {
   config_manager: Rc<ConfigManager>,
-  wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+  wm_policy_manager: Rc<WmPolicyManager>,
   window_manager: Rc<WindowManager>,
   display: *mut wl_display,
   renderer: *mut wlr_renderer,
@@ -157,7 +153,7 @@ impl OutputManager {
 impl OutputManager {
   pub(crate) fn init(
     config_manager: Rc<ConfigManager>,
-    wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+    wm_policy_manager: Rc<WmPolicyManager>,
     window_manager: Rc<WindowManager>,
     display: *mut wl_display,
     backend: *mut wlr_backend,
@@ -199,7 +195,7 @@ impl OutputManager {
   #[cfg(test)]
   pub(crate) fn mock(
     config_manager: Rc<ConfigManager>,
-    wm_policy_manager: Rc<RefCell<WmPolicyManager>>,
+    wm_policy_manager: Rc<WmPolicyManager>,
     window_manager: Rc<WindowManager>,
   ) -> Rc<OutputManager> {
     Rc::new(OutputManager {
@@ -242,10 +238,14 @@ mod tests {
 
   #[test]
   fn it_drops_and_cleans_up_on_destroy() {
-    let config_manager = Rc::new(ConfigManager::new());
-    let wm_policy_manager = Rc::new(RefCell::new(WmPolicyManager::new()));
+    let config_manager = Rc::new(ConfigManager::default());
+    let wm_policy_manager = Rc::new(WmPolicyManager::new());
     let seat_manager = SeatManager::mock(ptr::null_mut(), ptr::null_mut());
-    let window_manager = Rc::new(WindowManager::init(seat_manager, ptr::null_mut()));
+    let window_manager = Rc::new(WindowManager::init(
+      wm_policy_manager.clone(),
+      seat_manager,
+      ptr::null_mut(),
+    ));
     let output_manager = Rc::new(OutputManager {
       config_manager,
       wm_policy_manager: wm_policy_manager.clone(),
