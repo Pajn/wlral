@@ -178,6 +178,14 @@ impl Rectangle {
     self.top() + self.height()
   }
 
+  pub fn center_x(&self) -> i32 {
+    self.left() + self.width() / 2
+  }
+
+  pub fn center_y(&self) -> i32 {
+    self.top() + self.height() / 2
+  }
+
   pub fn width(&self) -> i32 {
     self.size.width
   }
