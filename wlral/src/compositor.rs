@@ -45,7 +45,7 @@ pub struct Compositor {
   keyboard_manager: Rc<KeyboardManager>,
 
   wm_policy_manager: Rc<WmPolicyManager>,
-  event_filter_manager: Rc<RefCell<EventFilterManager>>,
+  event_filter_manager: Rc<EventFilterManager>,
 }
 
 impl Compositor {
@@ -111,7 +111,7 @@ impl Compositor {
       );
       window_manager.set_output_manager(output_manager.clone());
 
-      let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
+      let event_filter_manager = Rc::new(EventFilterManager::new());
       let cursor_manager = CursorManager::init(
         output_manager.clone(),
         window_manager.clone(),
@@ -148,9 +148,7 @@ impl Compositor {
         compositor,
       );
 
-      event_filter_manager
-        .borrow_mut()
-        .add_event_filter(Box::new(VtSwitchEventFilter::new(backend)));
+      event_filter_manager.add_event_filter(Box::new(VtSwitchEventFilter::new(backend)));
 
       wlr_export_dmabuf_manager_v1_create(display);
       wlr_screencopy_manager_v1_create(display);
@@ -238,23 +236,19 @@ impl Compositor {
   }
 
   pub fn add_event_filter(&mut self, filter: Box<dyn EventFilter>) {
-    self
-      .event_filter_manager
-      .borrow_mut()
-      .add_event_filter(filter)
+    self.event_filter_manager.add_event_filter(filter)
   }
 
   pub fn run<T>(self, window_management_policy: T) -> Result<(), u32>
   where
     T: 'static + WindowManagementPolicy + EventFilter,
   {
-    let window_management_policy = Rc::new(RefCell::new(window_management_policy));
+    let window_management_policy = Rc::new(window_management_policy);
     self
       .wm_policy_manager
       .set_policy(window_management_policy.clone());
     self
       .event_filter_manager
-      .borrow_mut()
       .add_event_filter(Box::new(window_management_policy));
 
     debug!("Compositor::run");

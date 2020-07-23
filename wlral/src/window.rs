@@ -125,6 +125,11 @@ impl Window {
     self.surface.extents() + self.position_displacement()
   }
 
+  /// The size of the window
+  pub fn size(&self) -> Size {
+    self.surface.extents().size()
+  }
+
   /// The position and size of the buffer
   ///
   /// When a client draws client-side shadows (like GTK)
@@ -153,7 +158,7 @@ impl Window {
   /// this will not cause an immediately observable effect.
   pub fn set_extents(&self, extents: &Rectangle) {
     self.pending_updates.borrow_mut().insert(
-      self.surface.resize(extents.size),
+      self.surface.resize(extents.size()),
       PendingUpdate {
         top_left: extents.top_left(),
       },

@@ -17,7 +17,7 @@ pub struct CursorManager {
   output_manager: Rc<OutputManager>,
   window_manager: Rc<WindowManager>,
   seat_manager: Rc<SeatManager>,
-  event_filter_manager: Rc<RefCell<EventFilterManager>>,
+  event_filter_manager: Rc<EventFilterManager>,
   cursor: *mut wlr_cursor,
   cursor_mgr: *mut wlr_xcursor_manager,
   pointers: RefCell<Vec<Rc<Device>>>,
@@ -30,7 +30,7 @@ impl CursorManager {
     output_manager: Rc<OutputManager>,
     window_manager: Rc<WindowManager>,
     seat_manager: Rc<SeatManager>,
-    event_filter_manager: Rc<RefCell<EventFilterManager>>,
+    event_filter_manager: Rc<EventFilterManager>,
     output_layout: *mut wlr_output_layout,
   ) -> Rc<CursorManager> {
     debug!("CursorManager::init");
@@ -118,7 +118,7 @@ impl CursorManager {
     output_manager: Rc<OutputManager>,
     window_manager: Rc<WindowManager>,
     seat_manager: Rc<SeatManager>,
-    event_filter_manager: Rc<RefCell<EventFilterManager>>,
+    event_filter_manager: Rc<EventFilterManager>,
     cursor: *mut wlr_cursor,
     cursor_mgr: *mut wlr_xcursor_manager,
   ) -> Rc<CursorManager> {
@@ -213,7 +213,6 @@ impl CursorManager {
 
     self
       .event_filter_manager
-      .borrow_mut()
       .handle_pointer_motion_event(&event);
   }
 
@@ -271,10 +270,7 @@ impl CursorEventHandler for Rc<CursorManager> {
   fn axis(&self, event: *const wlr_event_pointer_axis) {
     let event = unsafe { AxisEvent::from_ptr(self.clone(), event) };
 
-    let handled = self
-      .event_filter_manager
-      .borrow_mut()
-      .handle_pointer_axis_event(&event);
+    let handled = self.event_filter_manager.handle_pointer_axis_event(&event);
 
     if !handled {
       unsafe {
@@ -295,7 +291,6 @@ impl CursorEventHandler for Rc<CursorManager> {
 
     let handled = self
       .event_filter_manager
-      .borrow_mut()
       .handle_pointer_button_event(&event);
 
     if !handled {
@@ -412,7 +407,7 @@ mod tests {
     ));
     let output_manager =
       OutputManager::mock(config_manager, wm_policy_manager, window_manager.clone());
-    let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
+    let event_filter_manager = Rc::new(EventFilterManager::new());
     let cursor_manager = CursorManager::init(
       output_manager,
       window_manager.clone(),

@@ -7,7 +7,7 @@ use crate::{
   window::Window,
   window_management_policy::WmPolicyManager,
 };
-use log::warn;
+use log::{trace, warn};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::{Rc, Weak};
@@ -178,6 +178,8 @@ impl WindowManager {
         return;
       }
 
+      trace!("Focusing window \"{:?}\"", window.title());
+
       if !old_wlr_surface.is_null() {
         // Deactivate the previously focused window. This lets the client know
         // it no longer has focus and the client will repaint accordingly, e.g.
@@ -308,7 +310,7 @@ mod tests {
       output_manager.clone(),
       window_manager.clone(),
       seat_manager.clone(),
-      Rc::new(RefCell::new(EventFilterManager::new())),
+      Rc::new(EventFilterManager::new()),
       ptr::null_mut(),
       ptr::null_mut(),
     );

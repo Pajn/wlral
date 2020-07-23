@@ -58,27 +58,27 @@ pub struct MinimizeRequest<'a> {
 }
 
 pub trait WindowManagementPolicy {
-  fn handle_window_ready(&mut self, _window: Rc<Window>) {}
-  fn advise_new_window(&mut self, _window: Rc<Window>) {}
-  fn advise_configured_window(&mut self, _window: Rc<Window>) {}
-  fn advise_focused_window(&mut self, _window: Rc<Window>) {}
-  fn advise_delete_window(&mut self, _window: Rc<Window>) {}
+  fn handle_window_ready(&self, _window: Rc<Window>) {}
+  fn advise_new_window(&self, _window: Rc<Window>) {}
+  fn advise_configured_window(&self, _window: Rc<Window>) {}
+  fn advise_focused_window(&self, _window: Rc<Window>) {}
+  fn advise_delete_window(&self, _window: Rc<Window>) {}
 
-  fn handle_request_activate(&mut self, _request: ActivateRequest) {}
-  fn handle_request_close(&mut self, _request: CloseRequest) {}
-  fn handle_request_move(&mut self, _request: MoveRequest) {}
-  fn handle_request_resize(&mut self, _request: ResizeRequest) {}
-  fn handle_request_maximize(&mut self, _request: MaximizeRequest) {}
-  fn handle_request_fullscreen(&mut self, _request: FullscreenRequest) {}
-  fn handle_request_minimize(&mut self, _request: MinimizeRequest) {}
+  fn handle_request_activate(&self, _request: ActivateRequest) {}
+  fn handle_request_close(&self, _request: CloseRequest) {}
+  fn handle_request_move(&self, _request: MoveRequest) {}
+  fn handle_request_resize(&self, _request: ResizeRequest) {}
+  fn handle_request_maximize(&self, _request: MaximizeRequest) {}
+  fn handle_request_fullscreen(&self, _request: FullscreenRequest) {}
+  fn handle_request_minimize(&self, _request: MinimizeRequest) {}
 
-  fn advise_output_create(&mut self, _output: Rc<Output>) {}
-  fn advise_output_update(&mut self, _output: Rc<Output>) {}
-  fn advise_output_delete(&mut self, _output: Rc<Output>) {}
+  fn advise_output_create(&self, _output: Rc<Output>) {}
+  fn advise_output_update(&self, _output: Rc<Output>) {}
+  fn advise_output_delete(&self, _output: Rc<Output>) {}
 }
 
 pub(crate) struct WmPolicyManager {
-  policy: RefCell<Option<Rc<RefCell<dyn WindowManagementPolicy>>>>,
+  policy: RefCell<Option<Rc<dyn WindowManagementPolicy>>>,
 }
 
 impl Debug for WmPolicyManager {
@@ -94,7 +94,7 @@ impl WmPolicyManager {
     }
   }
 
-  pub(crate) fn set_policy<T>(&self, policy: Rc<RefCell<T>>)
+  pub(crate) fn set_policy<T>(&self, policy: Rc<T>)
   where
     T: 'static + WindowManagementPolicy,
   {
@@ -103,79 +103,79 @@ impl WmPolicyManager {
 
   pub(crate) fn handle_window_ready(&self, window: Rc<Window>) {
     if let Some(ref policy) = *self.policy.borrow() {
-      policy.borrow_mut().handle_window_ready(window)
+      policy.handle_window_ready(window)
     }
   }
   pub(crate) fn advise_new_window(&self, window: Rc<Window>) {
     if let Some(ref policy) = *self.policy.borrow() {
-      policy.borrow_mut().advise_new_window(window)
+      policy.advise_new_window(window)
     }
   }
   pub(crate) fn advise_configured_window(&self, window: Rc<Window>) {
     if let Some(ref policy) = *self.policy.borrow() {
-      policy.borrow_mut().advise_configured_window(window)
+      policy.advise_configured_window(window)
     }
   }
   pub(crate) fn advise_focused_window(&self, window: Rc<Window>) {
     if let Some(ref policy) = *self.policy.borrow() {
-      policy.borrow_mut().advise_focused_window(window)
+      policy.advise_focused_window(window)
     }
   }
   pub(crate) fn advise_delete_window(&self, window: Rc<Window>) {
     if let Some(ref policy) = *self.policy.borrow() {
-      policy.borrow_mut().advise_delete_window(window)
+      policy.advise_delete_window(window)
     }
   }
 
   pub(crate) fn handle_request_activate(&self, request: ActivateRequest) {
     if let Some(ref policy) = *self.policy.borrow() {
-      policy.borrow_mut().handle_request_activate(request)
+      policy.handle_request_activate(request)
     }
   }
   pub(crate) fn handle_request_close(&self, request: CloseRequest) {
     if let Some(ref policy) = *self.policy.borrow() {
-      policy.borrow_mut().handle_request_close(request)
+      policy.handle_request_close(request)
     }
   }
   pub(crate) fn handle_request_move(&self, request: MoveRequest) {
     if let Some(ref policy) = *self.policy.borrow() {
-      policy.borrow_mut().handle_request_move(request)
+      policy.handle_request_move(request)
     }
   }
   pub(crate) fn handle_request_resize(&self, request: ResizeRequest) {
     if let Some(ref policy) = *self.policy.borrow() {
-      policy.borrow_mut().handle_request_resize(request)
+      policy.handle_request_resize(request)
     }
   }
   pub(crate) fn handle_request_maximize(&self, request: MaximizeRequest) {
     if let Some(ref policy) = *self.policy.borrow() {
-      policy.borrow_mut().handle_request_maximize(request)
+      policy.handle_request_maximize(request)
     }
   }
   pub(crate) fn handle_request_fullscreen(&self, request: FullscreenRequest) {
     if let Some(ref policy) = *self.policy.borrow() {
-      policy.borrow_mut().handle_request_fullscreen(request)
+      policy.handle_request_fullscreen(request)
     }
   }
   pub(crate) fn handle_request_minimize(&self, request: MinimizeRequest) {
     if let Some(ref policy) = *self.policy.borrow() {
-      policy.borrow_mut().handle_request_minimize(request)
+      policy.handle_request_minimize(request)
     }
   }
 
   pub(crate) fn advise_output_create(&self, output: Rc<Output>) {
     if let Some(ref policy) = *self.policy.borrow() {
-      policy.borrow_mut().advise_output_create(output)
+      policy.advise_output_create(output)
     }
   }
   pub(crate) fn advise_output_update(&self, output: Rc<Output>) {
     if let Some(ref policy) = *self.policy.borrow() {
-      policy.borrow_mut().advise_output_update(output)
+      policy.advise_output_update(output)
     }
   }
   pub(crate) fn advise_output_delete(&self, output: Rc<Output>) {
     if let Some(ref policy) = *self.policy.borrow() {
-      policy.borrow_mut().advise_output_delete(output)
+      policy.advise_output_delete(output)
     }
   }
 }

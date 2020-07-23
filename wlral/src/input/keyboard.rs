@@ -45,7 +45,7 @@ pub struct KeyboardConfig {
 
 pub struct Keyboard {
   seat_manager: Rc<SeatManager>,
-  event_filter_manager: Rc<RefCell<EventFilterManager>>,
+  event_filter_manager: Rc<EventFilterManager>,
   device: Rc<Device>,
   keyboard: *mut wlr_keyboard,
   xkb_state: RefCell<xkb::State>,
@@ -57,7 +57,7 @@ impl Keyboard {
   fn init(
     config_manager: Rc<ConfigManager>,
     seat_manager: Rc<SeatManager>,
-    event_filter_manager: Rc<RefCell<EventFilterManager>>,
+    event_filter_manager: Rc<EventFilterManager>,
     device: Rc<Device>,
   ) -> Rc<Keyboard> {
     debug!("Keyboard::init: {}", device.name());
@@ -167,10 +167,7 @@ impl KeyboardEventHandler for Keyboard {
   fn key(&self, event: *const wlr_event_keyboard_key) {
     let event = unsafe { KeyboardEvent::from_ptr(self, event) };
 
-    let handled = self
-      .event_filter_manager
-      .borrow_mut()
-      .handle_keyboard_event(&event);
+    let handled = self.event_filter_manager.handle_keyboard_event(&event);
 
     if !handled {
       unsafe {
@@ -207,7 +204,7 @@ wayland_listener!(
 pub struct KeyboardManager {
   config_manager: Rc<ConfigManager>,
   seat_manager: Rc<SeatManager>,
-  event_filter_manager: Rc<RefCell<EventFilterManager>>,
+  event_filter_manager: Rc<EventFilterManager>,
   keyboards: RefCell<Vec<Rc<Keyboard>>>,
 }
 
@@ -215,7 +212,7 @@ impl KeyboardManager {
   pub(crate) fn init(
     config_manager: Rc<ConfigManager>,
     seat_manager: Rc<SeatManager>,
-    event_filter_manager: Rc<RefCell<EventFilterManager>>,
+    event_filter_manager: Rc<EventFilterManager>,
   ) -> Rc<KeyboardManager> {
     let keyboard_manager = Rc::new(KeyboardManager {
       config_manager,
@@ -272,7 +269,7 @@ mod tests {
   fn it_drops_and_cleans_up_on_destroy() {
     let config_manager = Rc::new(ConfigManager::default());
     let seat_manager = SeatManager::mock(ptr::null_mut(), ptr::null_mut());
-    let event_filter_manager = Rc::new(RefCell::new(EventFilterManager::new()));
+    let event_filter_manager = Rc::new(EventFilterManager::new());
     let keyboard_manager = Rc::new(KeyboardManager::init(
       config_manager,
       seat_manager.clone(),
