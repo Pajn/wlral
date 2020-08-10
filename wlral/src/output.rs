@@ -155,7 +155,8 @@ impl Output {
         + Displacement {
           dx: wlr_surface.sx,
           dy: wlr_surface.sy,
-        };
+        }
+        + window.translate.borrow().clone();
 
       // We also have to apply the scale factor for HiDPI outputs. This is only
       // part of the puzzle, TinyWL does not fully support HiDPI.

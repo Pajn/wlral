@@ -51,6 +51,7 @@ pub struct Window {
   pub(crate) layer: WindowLayer,
   pub(crate) mapped: RefCell<bool>,
   pub(crate) top_left: RefCell<Point>,
+  pub(crate) translate: RefCell<Displacement>,
 
   pub(crate) outputs: RefCell<Vec<Rc<Output>>>,
   pub(crate) minimize_targets: RefCell<Vec<MinimizeTarget>>,
@@ -187,6 +188,13 @@ impl Window {
   }
   pub fn max_width(&self) -> Option<u32> {
     self.surface.max_width()
+  }
+
+  pub fn translate(&self) -> Displacement {
+    self.translate.borrow().clone()
+  }
+  pub fn set_translate(&self, translate: Displacement) {
+    *self.translate.borrow_mut() = translate;
   }
 
   pub fn activated(&self) -> bool {

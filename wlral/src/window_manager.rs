@@ -1,4 +1,4 @@
-use crate::geometry::Point;
+use crate::geometry::{Displacement, Point};
 use crate::surface::{Surface, SurfaceExt};
 use crate::{
   event::{Event, EventOnce},
@@ -45,7 +45,7 @@ impl WindowLayers {
 
   fn update<F>(&mut self, layer: WindowLayer, mut f: F)
   where
-    F: FnMut(&mut Vec<Rc<Window>>) -> (),
+    F: FnMut(&mut Vec<Rc<Window>>),
   {
     match layer {
       WindowLayer::Background => f(&mut self.background),
@@ -257,6 +257,7 @@ impl WindowManagerExt for Rc<WindowManager> {
       surface,
       mapped: RefCell::new(false),
       top_left: RefCell::new(Point::ZERO),
+      translate: RefCell::new(Displacement::ZERO),
       outputs: RefCell::new(vec![]),
       minimize_targets: RefCell::new(vec![]),
       pending_updates: RefCell::new(BTreeMap::new()),

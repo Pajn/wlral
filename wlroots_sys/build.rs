@@ -113,7 +113,7 @@ fn main() {
   }
 
   // generate the bindings
-  println!("cargo:rerun-if-changed={}", "src/wlroots.h");
+  println!("cargo:rerun-if-changed=src/wlroots.h");
   generated.write_to_file("src/gen.rs").unwrap();
 
   generate_protocols();
