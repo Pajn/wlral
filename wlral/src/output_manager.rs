@@ -29,6 +29,7 @@ fn new_output(manager: Rc<OutputManager>, output: *mut wlr_output) {
     created_at: Instant::now(),
     background_color: RefCell::new(manager.config_manager.config().background_color),
     on_destroy: EventOnce::default(),
+    on_frame: Event::default(),
     event_manager: RefCell::new(None),
   };
 

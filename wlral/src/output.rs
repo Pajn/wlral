@@ -1,7 +1,10 @@
 use crate::geometry::{Displacement, Point, Rectangle, Size, TransformMatrix};
 use crate::window::Window;
 use crate::window_management_policy::WmPolicyManager;
-use crate::{event::EventOnce, window_manager::WindowManager};
+use crate::{
+  event::{Event, EventOnce},
+  window_manager::WindowManager,
+};
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::ptr;
@@ -21,6 +24,7 @@ pub struct Output {
   pub(crate) background_color: RefCell<[f32; 3]>,
 
   pub(crate) on_destroy: EventOnce<()>,
+  pub(crate) on_frame: Event<()>,
 
   pub(crate) event_manager: RefCell<Option<Pin<Box<OutputEventManager>>>>,
 }
@@ -120,6 +124,13 @@ impl Output {
     model.to_string_lossy()
   }
 
+  pub fn on_destroy(&self) -> &EventOnce<()> {
+    &self.on_destroy
+  }
+  pub fn on_frame(&self) -> &Event<()> {
+    &self.on_frame
+  }
+
   pub(crate) fn render_window(&self, frame_time: &timespec, window: Rc<Window>) {
     unsafe {
       let wlr_surface = &mut *window.wlr_surface();
@@ -213,6 +224,8 @@ pub(crate) trait OutputEventHandler {
 
 impl OutputEventHandler for Rc<Output> {
   fn frame(&self) {
+    self.on_frame.fire(());
+
     unsafe {
       // wlr_output_attach_render makes the OpenGL context current.
       if !wlr_output_attach_render(self.output, ptr::null_mut()) {
