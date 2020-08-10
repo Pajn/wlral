@@ -277,10 +277,18 @@ pub type FDisplacement = TDisplacement<f64>;
 
 impl Displacement {
   pub const ZERO: Displacement = Displacement { dx: 0, dy: 0 };
+
+  pub fn length(&self) -> f64 {
+    ((self.dx.pow(2) + self.dy.pow(2)) as f64).sqrt()
+  }
 }
 
 impl FDisplacement {
   pub const ZERO: FDisplacement = FDisplacement { dx: 0.0, dy: 0.0 };
+
+  pub fn length(&self) -> f64 {
+    ((self.dx.powi(2) + self.dy.powi(2)) as f64).sqrt()
+  }
 }
 
 impl From<Displacement> for FDisplacement {
@@ -397,9 +405,29 @@ impl Sub<Displacement> for Rectangle {
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct TransformMatrix(pub [f32; 9]);
 
+#[rustfmt::skip]
 impl TransformMatrix {
   pub const IDENTITY: TransformMatrix =
-    TransformMatrix([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+    TransformMatrix([
+      1.0, 0.0, 0.0, 
+      0.0, 1.0, 0.0, 
+      0.0, 0.0, 1.0
+    ]);
+
+  pub fn translate(x: f32, y: f32) -> TransformMatrix {
+    TransformMatrix([
+      1.0, 0.0, x, 
+      0.0, 1.0, y, 
+      0.0, 0.0, 1.0
+    ])
+  }
+  pub fn scale(x: f32, y: f32) -> TransformMatrix {
+    TransformMatrix([
+    x,   0.0, 0.0, 
+      0.0, y,   0.0, 
+      0.0, 0.0, 1.0
+    ])
+  }
 
   pub fn as_ptr(&self) -> *const f32 {
     self.0.as_ptr()
@@ -407,6 +435,29 @@ impl TransformMatrix {
 
   pub fn as_mut_ptr(&mut self) -> *mut f32 {
     self.0.as_mut_ptr()
+  }
+}
+
+impl Mul for TransformMatrix {
+  type Output = TransformMatrix;
+
+  #[rustfmt::skip]
+  fn mul(self, rhs: Self) -> Self::Output {
+    let a = self.0;
+    let b = rhs.0;
+    TransformMatrix([
+      a[0]*b[0] + a[1]*b[3] + a[2]*b[6],
+      a[0]*b[1] + a[1]*b[4] + a[2]*b[7],
+      a[0]*b[2] + a[1]*b[5] + a[2]*b[8],
+
+      a[3]*b[0] + a[4]*b[3] + a[5]*b[6],
+      a[3]*b[1] + a[4]*b[4] + a[5]*b[7],
+      a[3]*b[2] + a[4]*b[5] + a[5]*b[8],
+
+      a[6]*b[0] + a[7]*b[3] + a[8]*b[6],
+      a[6]*b[1] + a[7]*b[4] + a[8]*b[7],
+      a[6]*b[2] + a[7]*b[5] + a[8]*b[8],
+    ])
   }
 }
 
